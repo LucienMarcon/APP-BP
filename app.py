@@ -51,12 +51,65 @@ inputs_op_exit = {
 
 # --- MAIN: UNITS TABLE ---
 st.subheader("Unit Mix (Granular Control)")
+# CORRECTION : Ajout de la colonne "Price (€/m²)" indispensable pour le calcul
 default_units = pd.DataFrame([
-    {"Type": "Office", "Surface (m²)": 3000, "Rent (€/m²/mo)": 20, "Start Year": 3, "Mode": "Rent", "Sale Year": "Exit"},
-    {"Type": "Residential", "Surface (m²)": 1000, "Rent (€/m²/mo)": 16, "Start Year": 2, "Mode": "Rent", "Sale Year": "Exit"},
-    {"Type": "Retail", "Surface (m²)": 500, "Rent (€/m²/mo)": 35, "Start Year": 3, "Mode": "Rent", "Sale Year": "Exit"},
+    {
+        "Type": "Office", 
+        "Surface (m²)": 3000, 
+        "Rent (€/m²/mo)": 20, 
+        "Price (€/m²)": 2500,  # <--- AJOUTÉ ICI
+        "Start Year": 3, 
+        "Mode": "Rent", 
+        "Sale Year": "Exit"
+    },
+    {
+        "Type": "Residential", 
+        "Surface (m²)": 1000, 
+        "Rent (€/m²/mo)": 16, 
+        "Price (€/m²)": 4000,  # <--- AJOUTÉ ICI
+        "Start Year": 2, 
+        "Mode": "Rent", 
+        "Sale Year": "Exit"
+    },
+    {
+        "Type": "Retail", 
+        "Surface (m²)": 500, 
+        "Rent (€/m²/mo)": 35, 
+        "Price (€/m²)": 3000,  # <--- AJOUTÉ ICI
+        "Start Year": 3, 
+        "Mode": "Rent", 
+        "Sale Year": "Exit"
+    },
 ])
-df_units = st.data_editor(default_units, num_rows="dynamic")
+
+# Configuration des colonnes pour que ce soit joli et fonctionnel
+column_config = {
+    "Price (€/m²)": st.column_config.NumberColumn(
+        "Price (€/m²)",
+        help="Prix de vente au m² (si Mode = Sale ou Mixed)",
+        min_value=0,
+        step=100,
+        format="%d €"
+    ),
+    "Rent (€/m²/mo)": st.column_config.NumberColumn(
+        "Rent (€/m²/mo)",
+        min_value=0,
+        step=1,
+        format="%.2f €"
+    ),
+    "Mode": st.column_config.SelectboxColumn(
+        "Mode",
+        options=["Rent", "Sale", "Mixed"],
+        required=True
+    )
+}
+
+df_units = st.data_editor(
+    default_units, 
+    column_config=column_config, 
+    num_rows="dynamic",
+    use_container_width=True
+)
 
 # --- ORCHESTRATION (The Logic Pipeline) ---
 if st.button("Run Model"):
@@ -102,3 +155,4 @@ if st.button("Run Model"):
     with st.expander("Audit: Amortization Schedule"):
         st.write("Check logic: Interest Only vs Principal")
         st.dataframe(pd.DataFrame(amort.schedule).T)
+
