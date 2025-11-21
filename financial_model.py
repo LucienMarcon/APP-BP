@@ -79,11 +79,13 @@ class Construction:
             for _, row in self.df_asset_costs.iterrows():
                 asset_name = str(row['Asset Class'])
                 cost_per_m2 = row['Cost €/m²']
-                mask = df_units['Asset Class'].str.contains(asset_name, case=False, na=False)
-                gla = df_units.loc[mask, 'Surface (m²)'].sum()
+                # Recherche insensible à la casse dans le type d'unité
+                mask = df_units['Asset Class'].astype(str).str.contains(asset_name, case=False, na=False)
+                gla_for_this_asset = df_units.loc[mask, 'Surface (m²)'].sum()
+                
                 eff_decimal = general.building_efficiency
-                gfa = gla / eff_decimal if eff_decimal else 0
-                self.total_hard_costs += (gfa * cost_per_m2)
+                gfa_for_this_asset = gla_for_this_asset / eff_decimal if eff_decimal else 0
+                self.total_hard_costs += (gfa_for_this_asset * cost_per_m2)
         else:
             self.hard_cost_per_m2 = self.structure_cost + self.finishing_cost + self.utilities_cost
             self.total_hard_costs = self.hard_cost_per_m2 * self.gfa_calculated
@@ -93,6 +95,7 @@ class Construction:
 
         subtotal = self.total_hard_costs + self.total_soft_fees
         self.contingency_amount = subtotal * (self.contingency_pct / 100)
+        
         self.capex_construction_only = subtotal + self.contingency_amount
         self.total_capex = self.capex_construction_only + self.amenities_capex + self.parking_capex
 
@@ -117,12 +120,8 @@ class Financing:
         self.arrangement_fee_amt = self.debt_principal * self.arrangement_fee_pct
         self.total_upfront_fees = self.arrangement_fee_amt + self.upfront_fees_flat
         
-        self.total_investment = total_investment_cost # Passed from Construction total capex + fees handled outside or inside?
-        # In Excel: Equity = CAPEX_Summary!B6 - Financing!B5
-        # CAPEX_Summary!B6 = Construction Pre-Financing + Upfront Fees.
-        # So we need to add fees to the passed construction capex to get Total Investment
+        # Equity = Total CAPEX + Fees - Debt
         self.total_investment = total_investment_cost + self.total_upfront_fees
-        
         self.equity_needed = self.total_investment - self.debt_principal
 
 class OperationExit:
@@ -144,10 +143,12 @@ class Amortization:
         term = financing.loan_term
         grace = financing.grace_period
         amortization_duration = term - grace
+        
         if amortization_duration > 0:
             annuity = npf.pmt(rate, amortization_duration, -balance)
         else:
             annuity = 0
+
         for year in range(1, term + 2):
             if year <= grace:
                 interest = balance * rate
@@ -159,6 +160,7 @@ class Amortization:
                 principal = payment - interest
             else:
                 interest = principal = payment = 0
+            
             self.schedule[year] = {'opening': balance, 'payment': payment, 'interest': interest, 'principal': principal, 'closing': balance - principal}
             balance -= principal
             if balance < 0: balance = 0
@@ -166,40 +168,41 @@ class Amortization:
 class Scheduler:
     """
     Manages Rent Schedule and Sale Schedule.
-    Replicates Excel logic:
-    - Rent flows if Start <= Year < SaleYear (if SaleYear != "Exit")
-    - Sale flows if Year == SaleYear (and SaleYear != "Exit")
-    - Breakdown by Asset Class
+    REPAIRED: Now includes sale_schedule_by_asset to fix the AttributeError.
     """
     def __init__(self, df_units, operation: OperationExit, general: General, financing: Financing):
         self.rent_schedule = {} 
         self.rent_schedule_by_asset = {} 
+        
         self.sale_schedule = {}
-        self.sale_schedule_by_asset = {}
+        self.sale_schedule_by_asset = {} # C'était la ligne manquante !
         
         years = range(1, operation.holding_period + 2)
         
-        # Initialize dictionaries
+        # 1. Initialisation des dictionnaires
         for y in years:
             self.rent_schedule[y] = 0.0
             self.sale_schedule[y] = 0.0
             
-        # Identify all asset classes
+        # Initialisation des clés par Asset Class (pour éviter les erreurs de clé)
         asset_classes = df_units['Asset Class'].unique() if 'Asset Class' in df_units.columns else []
-        # Normalize asset classes (lowercase) for matching
+        # Normalisation en minuscules
         asset_classes = [str(ac).lower().strip() for ac in asset_classes]
-        # Pre-fill breakdown dicts
+        
         for ac in asset_classes:
             self.rent_schedule_by_asset[ac] = {y: 0.0 for y in years}
             self.sale_schedule_by_asset[ac] = {y: 0.0 for y in years}
         
-        # Generic bucket for unmatched
+        # Bucket fourre-tout
         self.rent_schedule_by_asset['other'] = {y: 0.0 for y in years}
         self.sale_schedule_by_asset['other'] = {y: 0.0 for y in years}
 
+        # 2. Boucle sur les unités
         for _, row in df_units.iterrows():
             raw_asset = str(row.get('Asset Class', 'Other'))
             asset_key = raw_asset.lower().strip()
+            
+            # Fallback si la clé n'existe pas
             if asset_key not in self.rent_schedule_by_asset:
                 asset_key = 'other'
 
@@ -213,17 +216,16 @@ class Scheduler:
             else: start_year = int(start_year)
             
             sale_year_val = row.get('Sale Year', 'Exit')
-            # Handle "Exit" logic
             is_exit_sale = str(sale_year_val).strip().lower() == 'exit'
             
             if is_exit_sale:
-                sale_year = operation.holding_period # Logic placeholder, usually implies no sale flow in schedule
+                sale_year = operation.holding_period
             else:
                 sale_year = pd.to_numeric(sale_year_val, errors='coerce')
                 if pd.isna(sale_year): sale_year = 999
                 else: sale_year = int(sale_year)
             
-            # Overrides
+            # Overrides Unitaires
             occ = pd.to_numeric(row.get('Occupancy %', np.nan), errors='coerce')
             occupancy = (occ / 100.0) if pd.notna(occ) else operation.occupancy_default
             
@@ -234,15 +236,12 @@ class Scheduler:
             price_growth = (ag / 100.0) if pd.notna(ag) else operation.inflation
 
             # --- RENT SCHEDULE ---
-            # Excel Logic: Rent if Start <= Year AND (SaleYear is Empty OR SaleYear > Year)
-            # If SaleYear is "Exit", it counts as infinity > Year, so rent continues.
+            # Excel Formula Check: 12 * Surface * Rent * Occ * (1+Growth)^Year
             if mode in ['rent', 'mixed']:
                 current_rent_m2 = base_rent_monthly * 12
                 for y in years:
-                    # Condition: Project Started AND (No Sale or Sale is in future)
-                    # Note: If sale_year is e.g. 5, rent is paid in Y1,2,3,4. In Y5 rent stops (assumed sale at start of year or simplified flow)
-                    # Excel formula: (Units!$J$4:$J$1994>B$2). B2 is Year index.
-                    # If Year=5, Sale=5. 5>5 is False. So no rent in Y5.
+                    # Logique Excel : Start <= Year
+                    # ET (Pas de Vente OU Vente > Année)
                     receives_rent = False
                     if y >= start_year:
                         if is_exit_sale:
@@ -251,7 +250,6 @@ class Scheduler:
                             receives_rent = True
                     
                     if receives_rent:
-                        # Indexation base Year 0: (1+g)^Year
                         indexed_rent = current_rent_m2 * ((1 + rent_growth) ** y)
                         val = surface * indexed_rent * occupancy
                         
@@ -259,11 +257,10 @@ class Scheduler:
                         self.rent_schedule_by_asset[asset_key][y] += val
 
             # --- SALE SCHEDULE ---
-            # Excel Logic: Sale if SaleYear == Year AND SaleYear != "Exit"
+            # Excel Formula Check: Surface * Price * (1+Growth)^Year
             if mode in ['sale', 'mixed']:
                 if not is_exit_sale:
-                    if sale_year in years: # Check if sale happens within our projection horizon
-                        # Indexation base Year 0: (1+g)^Year
+                    if sale_year in years:
                         price_indexed = base_price_m2 * ((1 + price_growth) ** sale_year)
                         val = surface * price_indexed
                         
@@ -277,13 +274,11 @@ class CashflowEngine:
         years = range(0, operation.holding_period + 1)
         data = []
         
-        # Exit Valuation (N+1 Logic)
+        # Exit Valuation (N+1)
         rent_n = scheduler.rent_schedule.get(operation.holding_period, 0)
         opex_fixed_n = general.gfa * operation.opex_per_m2 * ((1 + operation.inflation) ** (operation.holding_period - 1))
         opex_var_n = rent_n * operation.pm_fee_pct
         noi_n = rent_n - (opex_fixed_n + opex_var_n)
-        
-        # NOI N+1 = NOI N * (1 + Growth)
         noi_n_plus_1 = noi_n * (1 + operation.rent_growth)
         
         gross_exit_val = noi_n_plus_1 / operation.exit_yield
@@ -306,11 +301,9 @@ class CashflowEngine:
                 rent = scheduler.rent_schedule.get(y, 0)
                 sales = scheduler.sale_schedule.get(y, 0)
                 
-                # Add Terminal Value in Holding Year
                 if y == operation.holding_period:
                     sales += net_exit_val
                 
-                # OPEX
                 opex_fixed = general.gfa * operation.opex_per_m2 * ((1 + operation.inflation) ** (y - 1))
                 opex_var = rent * operation.pm_fee_pct
                 total_opex = opex_fixed + opex_var
@@ -327,17 +320,14 @@ class CashflowEngine:
                 
                 debt_data = amortization.schedule.get(y, {'payment': 0, 'closing': 0, 'interest': 0})
                 payment = debt_data['payment']
-                
-                # Bullet Repayment + Penalty at Exit
                 bullet = 0
                 prep_fee = 0
                 if y == operation.holding_period:
-                    bullet = debt_data['closing'] # Repay remaining balance
+                    bullet = debt_data['closing']
                     prep_fee = bullet * financing.prepayment_fee_pct
                 
                 row['Debt Service'] = -(payment + bullet + prep_fee)
                 
-                # Tax (on NOI - Interest - Depreciation?) - Simplified as per logic map: IF(EBIT>0, EBIT*TaxRate)
                 interest = debt_data['interest']
                 ebt = noi - interest
                 
@@ -355,13 +345,6 @@ class CashflowEngine:
             
         self.df = pd.DataFrame(data).set_index('Year')
         
-        # Equity Injection Logic (Drawdown) - usually matches CAPEX needs in early years
-        # Simplified: We assume Debt covers X%, Equity covers Y% of Initial Investment.
-        # For Cashflow view: Initial Debt Drawdown happens at Y0 or Y1.
-        # Excel Logic: Equity is input. Debt is input.
-        # Let's inject Debt Amount in Y1 to offset Construction CAPEX?
-        # Or better: Net Cash Flow at Y0/Y1 is usually negative (Equity needed).
-        # We add a "Debt Drawdown" column to be explicit?
         if 1 in self.df.index:
             self.df.at[1, 'Debt Drawdown'] = financing.debt_amount_input
             self.df.at[1, 'Net Cash Flow'] += financing.debt_amount_input
@@ -373,8 +356,8 @@ class CashflowEngine:
         try: irr = npf.irr(flows)
         except: irr = 0
         npv = npf.npv(discount_rate, flows)
-        
         positive_flows = flows[flows > 0].sum()
+        
         moic = positive_flows / equity_needed if equity_needed > 0 else 0
         
         self.kpis = {'Levered IRR': irr * 100, 'NPV': npv, 'Equity Multiple': moic, 'Peak Equity': equity_needed}
