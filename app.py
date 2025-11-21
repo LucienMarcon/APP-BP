@@ -5,27 +5,21 @@ from financial_model import General, Construction, Financing, OperationExit, Amo
 
 st.set_page_config(layout="wide", page_title="ImmoGenius", page_icon="🏢")
 
-# --- CSS ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
     html, body, [class*="css"] {font-family: 'Inter', sans-serif;}
     .stApp {background-color: #F8F9FA;}
     .stMetric {background: white; padding: 15px; border-radius: 12px; border-left: 5px solid #3B82F6; box-shadow: 0 2px 5px rgba(0,0,0,0.05);}
-    .stTabs [data-baseweb="tab-list"] {gap: 10px;}
-    .stTabs [data-baseweb="tab"] {background-color: white; border-radius: 8px; padding: 10px 20px; border: 1px solid #E2E8F0;}
-    .stTabs [aria-selected="true"] {background-color: #EFF6FF; border-color: #3B82F6; color: #3B82F6;}
     </style>
 """, unsafe_allow_html=True)
 
-# --- HERO HEADER ---
 c_logo, c_titre = st.columns([1, 6])
 with c_logo: st.write("# 🏢")
 with c_titre:
-    st.title("ImmoGenius 3.0")
-    st.caption("Plateforme de Modélisation Immobilière Intelligente")
+    st.title("ImmoGenius 3.0 - Final Audit")
+    st.caption("Modélisation Exacte 12/12 Feuilles")
 
-# --- WIZARD ---
 step1, step2, step3, step4 = st.tabs(["📍 1. Terrain", "🏗️ 2. Construction", "🏘️ 3. Unités", "💰 4. Finance & KPI"])
 
 # 1. TERRAIN
@@ -41,7 +35,7 @@ with step1:
         i_const_rate = uc1.number_input("Emprise (%)", 60)
         i_far = uc2.number_input("FAR", 3.45)
         i_efficiency = uc3.number_input("Efficacité (%)", 80)
-        calc_gfa = i_land_area * i_const_rate/100 * i_far
+        calc_gfa = (i_land_area * i_const_rate/100) * i_far
         calc_gla = calc_gfa * i_efficiency/100
         st.success(f"🏗️ GFA: **{calc_gfa:,.0f} m²** | 🔑 GLA: **{calc_gla:,.0f} m²**")
 
@@ -88,23 +82,30 @@ with step3:
     with col_top_p:
         i_parking_cost = st.number_input("Coût Parking (€)", 18754)
     
+    # Pre-loaded Data matching [Feuille Units] exact headers
     units_data = []
+    # Offices
     for t in ["OF-L", "OF-M", "OF-S"]:
         surf = 3000 if t != "OF-S" else 2640
-        units_data.append({"Code": t, "Asset Class": "office", "Surface (m²)": surf, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio": 2.5, "Occupancy %": 90, "Rent Growth %": 5, "Appreciation %": 4.5})
-    for _ in range(4): units_data.append({"Code": "T2-VP", "Asset Class": "residential", "Surface (m²)": 70, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
-    for _ in range(6): units_data.append({"Code": "T2-VEFA", "Asset Class": "residential", "Surface (m²)": 70, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
-    for _ in range(4): units_data.append({"Code": "T3-VP", "Asset Class": "residential", "Surface (m²)": 110, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
-    for _ in range(8): units_data.append({"Code": "T3-VEFA", "Asset Class": "residential", "Surface (m²)": 110, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
-    for _ in range(6): units_data.append({"Code": "T4-VP", "Asset Class": "residential", "Surface (m²)": 150, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
-    for _ in range(6): units_data.append({"Code": "T4-VEFA", "Asset Class": "residential", "Surface (m²)": 150, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
+        units_data.append({"Code": t, "AssetClass": "office", "Surface (GLA m²)": surf, "Rent (€/m²/mo)": 20, "Price €/m²": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio (per 100 m²)": 2.5, "Occ %": 90, "Rent growth %": 5, "Asset Value Growth (%/yr)": 4.5})
+    # Resi T2/T3/T4 VP & VEFA
+    for _ in range(4): units_data.append({"Code": "T2-VP", "AssetClass": "residential", "Surface (GLA m²)": 70, "Rent (€/m²/mo)": 16, "Price €/m²": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio (per 100 m²)": 0, "Occ %": 95, "Rent growth %": 4, "Asset Value Growth (%/yr)": 4})
+    for _ in range(6): units_data.append({"Code": "T2-VEFA", "AssetClass": "residential", "Surface (GLA m²)": 70, "Rent (€/m²/mo)": 16, "Price €/m²": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio (per 100 m²)": 0, "Occ %": 95, "Rent growth %": 4, "Asset Value Growth (%/yr)": 4})
+    for _ in range(4): units_data.append({"Code": "T3-VP", "AssetClass": "residential", "Surface (GLA m²)": 110, "Rent (€/m²/mo)": 16, "Price €/m²": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio (per 100 m²)": 0, "Occ %": 95, "Rent growth %": 4, "Asset Value Growth (%/yr)": 4})
+    for _ in range(8): units_data.append({"Code": "T3-VEFA", "AssetClass": "residential", "Surface (GLA m²)": 110, "Rent (€/m²/mo)": 16, "Price €/m²": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio (per 100 m²)": 0, "Occ %": 95, "Rent growth %": 4, "Asset Value Growth (%/yr)": 4})
+    for _ in range(6): units_data.append({"Code": "T4-VP", "AssetClass": "residential", "Surface (GLA m²)": 150, "Rent (€/m²/mo)": 16, "Price €/m²": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio (per 100 m²)": 0, "Occ %": 95, "Rent growth %": 4, "Asset Value Growth (%/yr)": 4})
+    for _ in range(6): units_data.append({"Code": "T4-VEFA", "AssetClass": "residential", "Surface (GLA m²)": 150, "Rent (€/m²/mo)": 16, "Price €/m²": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio (per 100 m²)": 0, "Occ %": 95, "Rent growth %": 4, "Asset Value Growth (%/yr)": 4})
 
     df_default_units = pd.DataFrame(units_data)
+    
     col_conf = {
-        "Asset Class": st.column_config.SelectboxColumn(options=["office", "residential", "retail", "logistics", "hotel"]),
+        "AssetClass": st.column_config.SelectboxColumn(options=["office", "residential", "retail", "logistics", "hotel"]),
         "Mode": st.column_config.SelectboxColumn(options=["Rent", "Sale", "Mixed"]),
-        "Price (€/m²)": st.column_config.NumberColumn(format="%d €"),
+        "Price €/m²": st.column_config.NumberColumn(format="%d €"),
         "Rent (€/m²/mo)": st.column_config.NumberColumn(format="%.2f €"),
+        "Occ %": st.column_config.NumberColumn(format="%d %%"),
+        "Rent growth %": st.column_config.NumberColumn(format="%.1f %%"),
+        "Asset Value Growth (%/yr)": st.column_config.NumberColumn(format="%.1f %%"),
     }
     df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True, height=300, hide_index=True)
 
@@ -163,7 +164,7 @@ if st.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=Tru
 
         # --- VISUALISATION ---
         st.markdown("---")
-        st.markdown("### 📊 CAPEX SUMMARY (Feuille Excel Répliquée)")
+        st.markdown("### 📊 CAPEX SUMMARY")
         
         df_capex = pd.DataFrame([
             {"Component": "Construction pre-financing", "Amount (€)": capex_sum.construction_pre_financing},
