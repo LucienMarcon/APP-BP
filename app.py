@@ -154,10 +154,10 @@ if st.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=Tru
     try:
         gen = General(inp_gen)
         const = Construction(inp_const, gen, df_units)
-        fin = Financing(inp_fin) # Correct initialization
-        op = OperationExit(inp_op) # Init op before amort
+        fin = Financing(inp_fin)
+        op = OperationExit(inp_op)
         capex_sum = CapexSummary(const, fin)
-        amort = Amortization(fin, op) # Now op is defined
+        amort = Amortization(fin, op) # Correctly passed 2 arguments
         sched = Scheduler(df_units, op, gen, fin)
         cf = CashflowEngine(gen, const, fin, capex_sum, op, amort, sched)
 
