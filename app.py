@@ -202,12 +202,13 @@ if st.button("Run Model", type="primary"):
     
     inputs_construction = {
         'structure_cost': i_struct, 'finishing_cost': i_finish, 'utilities_cost': 200,
-        'permit_fees': i_permits, 'architect_fees_pct': i_arch, 'development_fees_pct': i_dev, 'marketing_fees_pct': 0, # Simplifié ici
+        'permit_fees': i_permits, 'architect_fees_pct': i_arch, 'development_fees_pct': i_dev, 'marketing_fees_pct': 0,
         'contingency_pct': i_contingency,
         's_curve_y1': i_s1, 's_curve_y2': i_s2, 's_curve_y3': i_s3,
         'use_research_cost': use_research,
-        'cost_residential': i_cost_res, 'cost_office': i_cost_off, 'cost_retail': i_cost_ret,
+        'df_asset_costs': df_asset_costs,  # <--- LE NOUVEAU TABLEAU EST PASSÉ ICI
         'amenities_total_capex': amenities_capex
+    }
     }
     
     inputs_financing = {
@@ -241,6 +242,7 @@ if st.button("Run Model", type="primary"):
     st.dataframe(cf.df.style.format("{:,.0f}"), use_container_width=True)
     
     st.bar_chart(cf.df[['NOI', 'Debt Service', 'Net Cash Flow']])
+
 
 
 
