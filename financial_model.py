@@ -3,6 +3,9 @@ import numpy_financial as npf
 import pandas as pd
 
 class General:
+    """
+    Source: [Feuille General]
+    """
     def __init__(self, inputs):
         self.land_area = inputs.get('land_area', 7454)
         self.parcels = inputs.get('parcels', 3)
@@ -18,13 +21,16 @@ class General:
         self.gla = self.gfa * self.building_efficiency
 
 class Parking:
+    """
+    Source: [Feuille Parking]
+    """
     def __init__(self, inputs, df_units: pd.DataFrame):
         self.cost_per_space = inputs.get('cost_per_space', 18754)
         self.total_spaces = 0
         
         if not df_units.empty:
             for _, row in df_units.iterrows():
-                # NOM DE COLONNE EXACT SELON LE TXT
+                # Mapping EXACT [Feuille Units]
                 fixed = pd.to_numeric(row.get('Parking per unit', 0), errors='coerce')
                 ratio = pd.to_numeric(row.get('Parking ratio (per 100 m²)', 0), errors='coerce')
                 surface = pd.to_numeric(row.get('Surface (GLA m²)', 0), errors='coerce') # CORRIGÉ
@@ -39,6 +45,9 @@ class Parking:
         self.total_capex = self.total_spaces * self.cost_per_space
 
 class Construction:
+    """
+    Source: [Feuille Construction]
+    """
     def __init__(self, inputs, general: General, df_units: pd.DataFrame):
         self.structure_cost = inputs.get('structure_cost', 800)
         self.finishing_cost = inputs.get('finishing_cost', 400)
@@ -57,7 +66,7 @@ class Construction:
         self.amenities_capex = inputs.get('amenities_total_capex', 0)
         self.parking_capex = inputs.get('parking_capex', 0)
 
-        # GFA check (CORRIGÉ: Surface (GLA m²))
+        # GFA check (Cell D18) - Uses Surface (GLA m²)
         total_units_gla = df_units['Surface (GLA m²)'].sum() if not df_units.empty else 0
         efficiency_factor = (1 + (100 - (general.building_efficiency * 100)) / 100)
         self.gfa_calculated = total_units_gla * efficiency_factor
@@ -67,9 +76,9 @@ class Construction:
             for _, row in self.df_asset_costs.iterrows():
                 asset_name = str(row['Asset Class'])
                 cost_per_m2 = row['Cost €/m²']
-                # CORRIGÉ: 'AssetClass' sans espace (conformément au TXT)
+                # Recherche dans 'AssetClass' (sans espace, colonne Excel)
                 mask = df_units['AssetClass'].astype(str).str.contains(asset_name, case=False, na=False)
-                gla = df_units.loc[mask, 'Surface (GLA m²)'].sum()
+                gla = df_units.loc[mask, 'Surface (GLA m²)'].sum() # CORRIGÉ
                 
                 eff_decimal = general.building_efficiency
                 gfa = gla / eff_decimal if eff_decimal else 0
@@ -81,10 +90,8 @@ class Construction:
 
         soft_pct = self.architect_fees_pct + self.development_fees_pct + self.marketing_fees_pct
         self.total_soft_fees = (self.total_hard_costs * (soft_pct / 100)) + self.permit_fees
-
         subtotal = self.total_hard_costs + self.total_soft_fees
         self.contingency_amount = subtotal * (self.contingency_pct / 100)
-        
         self.capex_construction_only = subtotal + self.contingency_amount
         self.total_capex = self.capex_construction_only + self.amenities_capex + self.parking_capex
 
@@ -104,7 +111,6 @@ class Financing:
         self.arrangement_fee_pct = inputs.get('arrangement_fee_pct', 1.0) / 100.0
         self.upfront_fees_flat = inputs.get('upfront_fees', 150000.0)
         self.prepayment_fee_pct = inputs.get('prepayment_fee_pct', 2.0) / 100.0
-
         self.debt_principal = self.debt_amount_input
         self.arrangement_fee_amt = self.debt_principal * self.arrangement_fee_pct
         self.total_upfront_fees = self.arrangement_fee_amt + self.upfront_fees_flat
@@ -160,6 +166,9 @@ class Amortization:
             current_balance = closing
 
 class Scheduler:
+    """
+    Manages Rent Schedule and Sale Schedule using EXACT columns from Units.txt.
+    """
     def __init__(self, df_units, operation: OperationExit, general: General, financing: Financing):
         self.rent_schedule = {} 
         self.rent_schedule_by_asset = {} 
@@ -186,10 +195,10 @@ class Scheduler:
             asset_key = raw_asset.lower().strip()
             if asset_key not in self.rent_schedule_by_asset: asset_key = 'other'
 
-            # NOMS DE COLONNES EXACTS
-            surface = pd.to_numeric(row.get('Surface (GLA m²)', 0), errors='coerce')
+            # --- MAPPING CRITIQUE DES COLONNES ---
+            surface = pd.to_numeric(row.get('Surface (GLA m²)', 0), errors='coerce') # CORRIGÉ
             base_rent_monthly = pd.to_numeric(row.get('Rent (€/m²/mo)', 0), errors='coerce')
-            base_price_m2 = pd.to_numeric(row.get('Price €/m²', 0), errors='coerce')
+            base_price_m2 = pd.to_numeric(row.get('Price €/m²', 0), errors='coerce') # CORRIGÉ
             mode = str(row.get('Mode', '')).lower()
             start_year = int(pd.to_numeric(row.get('Start Year', 999), errors='coerce'))
             
@@ -207,7 +216,7 @@ class Scheduler:
                     receives_rent = False
                     if y >= start_year:
                         if is_exit_sale: receives_rent = True
-                        elif sale_year > y: receives_rent = True 
+                        elif sale_year > y: receives_rent = True
                     
                     if receives_rent:
                         indexed_rent = current_rent_m2 * ((1 + rent_growth) ** y)
