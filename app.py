@@ -154,7 +154,7 @@ if st.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=Tru
     try:
         gen = General(inp_gen)
         const = Construction(inp_const, gen, df_units)
-        fin = Financing(inp_fin, const.total_capex) # Passed for Fees calculation context if needed (not used in init anymore but ok)
+        fin = Financing(inp_fin, const.total_capex)
         capex_sum = CapexSummary(const, fin) # THE NEW KEY STEP
         amort = Amortization(fin)
         op = OperationExit(inp_op)
@@ -165,7 +165,6 @@ if st.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=Tru
         st.markdown("---")
         st.markdown("### 📊 CAPEX SUMMARY (Feuille Excel Répliquée)")
         
-        # Affichage du CAPEX Summary tel que demandé
         df_capex = pd.DataFrame([
             {"Component": "Construction pre-financing", "Amount (€)": capex_sum.construction_pre_financing},
             {"Component": "Upfront financing fees", "Amount (€)": capex_sum.upfront_financing_fees},
@@ -180,10 +179,11 @@ if st.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=Tru
         k3.metric("Peak Equity", f"€{cf.kpis['Peak Equity']:,.0f}")
         k4.metric("Profit (NPV)", f"€{cf.kpis['NPV']:,.0f}")
 
-        t1, t2, t3 = st.tabs(["Graphique", "Rent Schedule", "Sale Schedule"])
+        t1, t2, t3, t4 = st.tabs(["Graphique", "Rent Schedule", "Sale Schedule", "Détails"])
         with t1: st.bar_chart(cf.df[['NOI', 'Debt Service', 'Net Cash Flow']], color=["#22c55e", "#ef4444", "#3b82f6"])
         with t2: st.dataframe(pd.DataFrame(sched.rent_schedule_by_asset).style.format("{:,.0f}"), use_container_width=True)
         with t3: st.dataframe(pd.DataFrame(sched.sale_schedule_by_asset).style.format("{:,.0f}"), use_container_width=True)
+        with t4: st.dataframe(cf.df.style.format("{:,.0f}"), use_container_width=True)
 
     except Exception as e:
         st.error(f"Erreur: {e}")
