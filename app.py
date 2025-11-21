@@ -62,8 +62,53 @@ st.markdown("### 🏗️ Construction & Capex")
 with st.container(border=True):
     tab_build, tab_amenities, tab_scurve = st.tabs(["🧱 Coûts Bâtiment", "🎾 Amenities & Extras", "📈 Planning (S-Curve)"])
 
-    with tab_build:
-        use_research = st.toggle("Utiliser les coûts détaillés par classe d'actif ?", value=True, help="Si activé, le coût est calculé spécifiquement pour chaque typologie.")
+  with tab_build:
+        use_research = st.toggle("Utiliser les coûts détaillés par classe d'actif ?", value=True)
+        
+        # Initialisation du DataFrame de coûts (vide ou par défaut)
+        default_asset_costs = pd.DataFrame([
+            {"Asset Class": "Residential", "Cost €/m²": 1190},
+            {"Asset Class": "Office", "Cost €/m²": 1093},
+            {"Asset Class": "Retail", "Cost €/m²": 1200},
+            {"Asset Class": "Logistics", "Cost €/m²": 800},
+        ])
+
+        if use_research:
+            st.info("💡 Mode Expert : Ajoutez/Supprimez des lignes. Le 'Nom' doit correspondre au 'Type' dans la liste des unités.")
+            
+            # TABLEAU ÉDITABLE DYNAMIQUE
+            column_config_costs = {
+                "Asset Class": st.column_config.TextColumn("Classe d'Actif (Mot-clé)", help="Ce mot doit se trouver dans le Type d'unité (ex: 'Office' matchera 'Office-Large')"),
+                "Cost €/m²": st.column_config.NumberColumn("Coût GFA (€/m²)", format="%d €")
+            }
+            
+            df_asset_costs = st.data_editor(
+                default_asset_costs, 
+                column_config=column_config_costs, 
+                num_rows="dynamic", 
+                use_container_width=True,
+                key="editor_costs"
+            )
+            
+            # On met à zéro les variables globales pour la logique
+            i_struct = i_finish = 0
+        else:
+            st.warning("⚡ Mode Rapide : Coût moyen appliqué à tout le bâtiment.")
+            # On garde un DataFrame vide pour le moteur
+            df_asset_costs = pd.DataFrame()
+            
+            c1, c2, c3 = st.columns(3)
+            i_struct = c1.number_input("Structure (€/m²)", value=800, step=50)
+            i_finish = c2.number_input("Finitions (€/m²)", value=400, step=50)
+            i_util_dummy = c3.number_input("VRD / Utilities (€/m²)", value=200, step=50)
+
+        st.divider()
+        st.markdown("**Frais & Honoraires (Soft Costs)**")
+        fc1, fc2, fc3, fc4 = st.columns(4)
+        i_permits = fc1.number_input("Permis (Fixe €)", value=20000)
+        i_arch = fc2.number_input("Archi (%)", value=3.0, step=0.1)
+        i_dev = fc3.number_input("Dev/Marketing (%)", value=3.0, step=0.1)
+        i_contingency = fc4.number_input("Contingence (%)", value=5.0, step=0.5)
         
         if use_research:
             st.info("💡 Mode Expert Activé : Coûts différenciés par typologie.")
@@ -196,6 +241,7 @@ if st.button("Run Model", type="primary"):
     st.dataframe(cf.df.style.format("{:,.0f}"), use_container_width=True)
     
     st.bar_chart(cf.df[['NOI', 'Debt Service', 'Net Cash Flow']])
+
 
 
 
