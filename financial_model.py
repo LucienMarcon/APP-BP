@@ -39,46 +39,110 @@ class General:
 
 class Construction:
     """
-    Reconstructs the 'Construction' sheet logic.
+    Reconstructs the 'Construction' sheet logic exactly.
+    Includes the branching logic: Global Cost vs Research Cost per Asset Class.
     Reference: TXT File [Feuille Construction]
     """
-    def __init__(self, inputs, general: General):
-        # Inputs
+    def __init__(self, inputs, general: General, df_units: pd.DataFrame):
+        # --- INPUTS ---
         self.structure_cost = inputs.get('structure_cost', 800)
         self.finishing_cost = inputs.get('finishing_cost', 400)
         self.utilities_cost = inputs.get('utilities_cost', 200)
         self.permit_fees = inputs.get('permit_fees', 20000)
         
-        # Fees % of Hard Costs
-        self.architect_fees_pct = inputs.get('architect_fees_pct', 3.0) / 100.0
-        self.development_fees_pct = inputs.get('development_fees_pct', 2.0) / 100.0
-        self.marketing_fees_pct = inputs.get('marketing_fees_pct', 1.0) / 100.0
+        # Fees %
+        self.architect_fees_pct = inputs.get('architect_fees_pct', 3.0)
+        self.development_fees_pct = inputs.get('development_fees_pct', 2.0)
+        self.marketing_fees_pct = inputs.get('marketing_fees_pct', 1.0)
+        self.contingency_pct = inputs.get('contingency_pct', 5.0)
         
-        self.contingency_pct = inputs.get('contingency_pct', 5.0) / 100.0
-        
-        # S-Curve (Y1, Y2, Y3) - Must sum to 100%
+        # S-Curve
         self.s_curve_y1 = inputs.get('s_curve_y1', 40.0) / 100.0
         self.s_curve_y2 = inputs.get('s_curve_y2', 40.0) / 100.0
         self.s_curve_y3 = inputs.get('s_curve_y3', 20.0) / 100.0
 
-        # --- CALCULATIONS (Logic from TXT) ---
-        # 1. Hard Costs
-        self.hard_cost_per_m2 = self.structure_cost + self.finishing_cost + self.utilities_cost
-        self.total_hard_costs = self.hard_cost_per_m2 * general.gfa
+        # --- LOGIC: THE "SWITCH" (Cell B27) ---
+        self.use_research_cost = inputs.get('use_research_cost', True) # Boolean YES/NO
         
-        # 2. Soft Fees
-        self.soft_fees_pct_total = self.architect_fees_pct + self.development_fees_pct + self.marketing_fees_pct
-        self.total_soft_fees = (self.total_hard_costs * self.soft_fees_pct_total) + self.permit_fees
+        # Costs per Asset Class (Cell A30-A34)
+        self.cost_residential = inputs.get('cost_residential', 1190)
+        self.cost_office = inputs.get('cost_office', 1093)
+        self.cost_logistics = inputs.get('cost_logistics', 800) # Default if not in Excel
+        self.cost_retail = inputs.get('cost_retail', 1200) # Default
+        self.cost_hotel = inputs.get('cost_hotel', 1500) # Default
+
+        # Amenities (Cell A41+)
+        # Passed as a list of dicts: [{'capex': 120000, 'opex': 3000}, ...]
+        self.amenities_capex = inputs.get('amenities_total_capex', 0)
         
-        # 3. Subtotal & Contingency
-        self.subtotal = self.total_hard_costs + self.total_soft_fees
-        self.contingency_amount = self.subtotal * self.contingency_pct
+        # --- CALCULATIONS ---
+
+        # 1. GFA Calculation (Cell D18)
+        # Formula: SUM(Units GLA) * (1 + (100 - General!Efficiency)/100)
+        # Note: We sum the 'Surface' column from df_units
+        total_units_gla = df_units['Surface (m²)'].sum() if not df_units.empty else 0
+        efficiency_factor = (1 + (100 - (general.building_efficiency * 100)) / 100)
+        self.gfa_calculated = total_units_gla * efficiency_factor
+
+        # 2. Hard Costs Calculation (Cell D20 Logic)
+        if self.use_research_cost:
+            # METHOD B: Research Cost per Asset Class (Rows 30-34)
+            # We need to sum GLA per type from df_units. 
+            # Assuming 'Type' column contains keywords like 'Office', 'Residential'
+            
+            def get_gla_by_type(keyword):
+                mask = df_units['Type'].str.contains(keyword, case=False, na=False)
+                return df_units.loc[mask, 'Surface (m²)'].sum()
+
+            gla_res = get_gla_by_type('Resid') # Matches Residential, T2, etc.
+            gla_off = get_gla_by_type('Office')
+            gla_log = get_gla_by_type('Logistics')
+            gla_ret = get_gla_by_type('Retail')
+            gla_hot = get_gla_by_type('Hotel')
+
+            # Convert GLA to GFA per asset (Cell E30 formula: GLA / (Eff/100))
+            # Wait, Excel says: IF(Gen!B8=0,0, D30/(Gen!B8/100))
+            eff_decimal = general.building_efficiency
+            
+            gfa_res = gla_res / eff_decimal if eff_decimal else 0
+            gfa_off = gla_off / eff_decimal if eff_decimal else 0
+            gfa_log = gla_log / eff_decimal if eff_decimal else 0
+            gfa_ret = gla_ret / eff_decimal if eff_decimal else 0
+            gfa_hot = gla_hot / eff_decimal if eff_decimal else 0
+
+            # Direct Cost (Cell F30: Price * GFA)
+            cost_res = self.cost_residential * gfa_res
+            cost_off = self.cost_office * gfa_off
+            cost_log = self.cost_logistics * gfa_log
+            cost_ret = self.cost_retail * gfa_ret
+            cost_hot = self.cost_hotel * gfa_hot
+            
+            self.total_hard_costs = cost_res + cost_off + cost_log + cost_ret + cost_hot
+            
+        else:
+            # METHOD A: Global Cost (Cell D19 * D18)
+            self.hard_cost_per_m2 = self.structure_cost + self.finishing_cost + self.utilities_cost
+            self.total_hard_costs = self.hard_cost_per_m2 * self.gfa_calculated
+
+        # 3. Soft Fees (Cell D22)
+        soft_pct = self.architect_fees_pct + self.development_fees_pct + self.marketing_fees_pct
+        self.total_soft_fees = (self.total_hard_costs * (soft_pct / 100)) + self.permit_fees
+
+        # 4. Contingency (Cell D24)
+        # Applies to (Hard + Soft)
+        subtotal = self.total_hard_costs + self.total_soft_fees
+        self.contingency_amount = subtotal * (self.contingency_pct / 100)
+
+        # 5. Total Construction Pre-Financing (Cell D25)
+        self.capex_construction_only = subtotal + self.contingency_amount
         
-        # 4. Total CAPEX (Pre-financing)
-        self.total_capex = self.subtotal + self.contingency_amount
+        # 6. FINAL TOTAL including Amenities & Parking (Cell D39)
+        # Note: Parking comes from Parking sheet, passed via inputs for now or future class
+        parking_capex = inputs.get('parking_capex', 0) 
+        
+        self.total_capex = self.capex_construction_only + self.amenities_capex + parking_capex
 
     def get_yearly_capex(self):
-        """Returns dictionary of CAPEX distribution per year {1: val, 2: val...}"""
         return {
             1: self.total_capex * self.s_curve_y1,
             2: self.total_capex * self.s_curve_y2,
@@ -421,3 +485,4 @@ class CashflowEngine:
             'Peak Equity': equity_needed
 
         }
+
