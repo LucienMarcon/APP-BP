@@ -76,7 +76,7 @@ with step2:
         edited_amenities = st.data_editor(default_amenities, num_rows="dynamic", hide_index=True)
         am_capex = (edited_amenities[edited_amenities["Actif"]]["Surface"] * edited_amenities[edited_amenities["Actif"]]["Coût"]).sum()
 
-    st.caption("S-Curve (Année 1 & 2, Reste en Année 3)")
+    st.caption("S-Curve")
     i_s1 = st.slider("Y1 (%)", 0, 100, 40)
     i_s2 = st.slider("Y2 (%)", 0, 100, 40)
     i_s3 = 100 - i_s1 - i_s2
@@ -156,44 +156,34 @@ if st.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=Tru
         const = Construction(inp_const, gen, df_units)
         fin = Financing(inp_fin) # Correct initialization
         capex_sum = CapexSummary(const, fin)
-        amort = Amortization(fin)
         op = OperationExit(inp_op)
+        amort = Amortization(fin, op) # Needs op for Exit Year
         sched = Scheduler(df_units, op, gen, fin)
         cf = CashflowEngine(gen, const, fin, capex_sum, op, amort, sched)
 
         # --- VISUALISATION ---
         st.markdown("---")
-        st.markdown("### 🎯 Résultats & Performance")
+        st.markdown("### 📊 CAPEX SUMMARY (Feuille Excel Répliquée)")
         
+        df_capex = pd.DataFrame([
+            {"Component": "Construction pre-financing", "Amount (€)": capex_sum.construction_pre_financing},
+            {"Component": "Upfront financing fees", "Amount (€)": capex_sum.upfront_financing_fees},
+            {"Component": "TOTAL CAPEX", "Amount (€)": capex_sum.total_capex}
+        ])
+        st.dataframe(df_capex.style.format({"Amount (€)": "{:,.0f}"}), use_container_width=True)
+
+        st.markdown("### 🎯 KPIs & Cashflow")
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Equity Multiple", f"{cf.kpis['Equity Multiple']:.2f}x")
-        k2.metric("Levered IRR", f"{cf.kpis['Levered IRR']:.2f}%")
-        k3.metric("Profit (NPV)", f"€{cf.kpis['NPV']:,.0f}")
-        k4.metric("Equity Nécessaire", f"€{cf.kpis['Peak Equity']:,.0f}")
+        k1.metric("IRR (Levered)", f"{cf.kpis['Levered IRR']:.2f}%")
+        k2.metric("Equity Multiple", f"{cf.kpis['Equity Multiple']:.2f}x")
+        k3.metric("Peak Equity", f"€{cf.kpis['Peak Equity']:,.0f}")
+        k4.metric("Profit (NPV)", f"€{cf.kpis['NPV']:,.0f}")
 
-        t_summary, t_flows, t_rent, t_sale = st.tabs(["📋 Synthèse CAPEX", "📊 Cashflow Détaillé", "📈 Loyers", "📉 Ventes"])
-        
-        with t_summary:
-            col_sum1, col_sum2 = st.columns([1, 2])
-            with col_sum1:
-                df_capex = pd.DataFrame([
-                    {"Poste": "Construction", "Montant": capex_sum.construction_pre_financing},
-                    {"Poste": "Frais Financiers", "Montant": capex_sum.upfront_financing_fees},
-                    {"Poste": "TOTAL", "Montant": capex_sum.total_capex}
-                ])
-                st.dataframe(df_capex.style.format({"Montant": "{:,.0f} €"}), use_container_width=True, hide_index=True)
-            with col_sum2:
-                st.bar_chart(df_capex.set_index("Poste"))
-
-        with t_flows:
-            st.dataframe(cf.df.style.format("{:,.0f}"), use_container_width=True, height=400)
-            st.caption("Note: Y0 inclut l'injection de fonds propres (Equity) et les frais de départ.")
-
-        with t_rent:
-             st.dataframe(pd.DataFrame(sched.rent_schedule_by_asset).style.format("{:,.0f}"), use_container_width=True)
-        
-        with t_sale:
-             st.dataframe(pd.DataFrame(sched.sale_schedule_by_asset).style.format("{:,.0f}"), use_container_width=True)
+        t1, t2, t3, t4 = st.tabs(["Graphique", "Rent Schedule", "Sale Schedule", "Détails"])
+        with t1: st.bar_chart(cf.df[['NOI', 'Debt Service', 'Net Cash Flow']], color=["#22c55e", "#ef4444", "#3b82f6"])
+        with t2: st.dataframe(pd.DataFrame(sched.rent_schedule_by_asset).style.format("{:,.0f}"), use_container_width=True)
+        with t3: st.dataframe(pd.DataFrame(sched.sale_schedule_by_asset).style.format("{:,.0f}"), use_container_width=True)
+        with t4: st.dataframe(cf.df.style.format("{:,.0f}"), use_container_width=True)
 
     except Exception as e:
         st.error(f"Erreur: {e}")
