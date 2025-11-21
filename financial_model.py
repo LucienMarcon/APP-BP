@@ -4,24 +4,37 @@ import pandas as pd
 
 class General:
     """
-    Reconstructs the 'General' sheet logic.
+    Reconstructs the 'General' sheet logic exactly.
     Reference: TXT File [Feuille General]
     """
     def __init__(self, inputs):
-        # Inputs (Row 4-14)
+        # --- INPUTS (Valeurs saisies) ---
         self.land_area = inputs.get('land_area', 7454)
-        self.construction_rate = inputs.get('construction_rate', 60) / 100.0
+        self.parcels = inputs.get('parcels', 3)
+        self.construction_rate = inputs.get('construction_rate', 60.0) / 100.0
         self.far = inputs.get('far', 3.45)
-        self.building_efficiency = inputs.get('building_efficiency', 80) / 100.0
-        self.corporate_tax_rate = inputs.get('corporate_tax_rate', 30) / 100.0
+        self.building_efficiency = inputs.get('building_efficiency', 80.0) / 100.0
+        
+        self.country = inputs.get('country', "Tanzanie")
+        self.city = inputs.get('city', "Dar es Salaam")
+        self.fx_eur_local = inputs.get('fx_eur_local', 2853.1)
+        
+        self.corporate_tax_rate = inputs.get('corporate_tax_rate', 30.0) / 100.0
         self.tax_holiday = inputs.get('tax_holiday', 3)
-        self.discount_rate = inputs.get('discount_rate', 10) / 100.0
+        self.discount_rate = inputs.get('discount_rate', 10.0) / 100.0
         
-        # Calculated Outputs (Rows below)
-        # GFA (Cell B16 approx) = Land * FAR
-        self.gfa = self.land_area * self.far
+        # --- CALCULATED OUTPUTS (Formules Excel) ---
         
-        # GLA (Cell B17 approx) = GFA * Efficiency
+        # Cellule D16 : Buildable footprint (Emprise bâtie)
+        # Formule = Land Area * Construction Rate
+        self.buildable_footprint = self.land_area * self.construction_rate
+        
+        # Cellule D17 : GFA (Constructed m²)
+        # Formule = Buildable footprint * FAR
+        self.gfa = self.buildable_footprint * self.far
+        
+        # Cellule D18 : GLA (Usable m²)
+        # Formule = GFA * Building Efficiency
         self.gla = self.gfa * self.building_efficiency
 
 class Construction:
@@ -406,4 +419,5 @@ class CashflowEngine:
             'NPV': npv,
             'Equity Multiple': moic,
             'Peak Equity': equity_needed
+
         }
