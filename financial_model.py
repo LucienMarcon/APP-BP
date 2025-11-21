@@ -177,7 +177,7 @@ class Financing:
 class CapexSummary:
     """
     Reconstructs 'CAPEX_Summary' sheet logic.
-    This is the missing link that caused the ImportError.
+    This class bridges Construction and Financing.
     """
     def __init__(self, construction: Construction, financing: Financing):
         # Cell B4: Construction pre-financing (Construction!D39)
@@ -351,7 +351,7 @@ class CashflowEngine:
                  general: General, 
                  construction: Construction, 
                  financing: Financing, 
-                 capex_summary: CapexSummary, # Class is now defined above
+                 capex_summary: CapexSummary, # Passed correctly
                  operation: OperationExit, 
                  amortization: Amortization, 
                  scheduler: Scheduler):
