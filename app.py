@@ -41,7 +41,7 @@ with step1:
         i_const_rate = uc1.number_input("Emprise (%)", 60)
         i_far = uc2.number_input("FAR", 3.45)
         i_efficiency = uc3.number_input("Efficacité (%)", 80)
-        calc_gfa = i_land_area * i_const_rate/100 * i_far
+        calc_gfa = (i_land_area * i_const_rate/100) * i_far
         calc_gla = calc_gfa * i_efficiency/100
         st.success(f"🏗️ GFA: **{calc_gfa:,.0f} m²** | 🔑 GLA: **{calc_gla:,.0f} m²**")
 
@@ -88,7 +88,7 @@ with step3:
     with col_top_p:
         i_parking_cost = st.number_input("Coût Parking (€)", 18754)
     
-    # DATA LOADING (Colonnes exactes)
+    # DATA LOADING - COLONNES EXACTES SELON TXT
     units_data = []
     for t in ["OF-L", "OF-M", "OF-S"]:
         surf = 3000 if t != "OF-S" else 2640
@@ -101,6 +101,7 @@ with step3:
     for _ in range(6): units_data.append({"Code": "T4-VEFA", "AssetClass": "residential", "Surface (GLA m²)": 150, "Rent (€/m²/mo)": 16, "Price €/m²": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio (per 100 m²)": 0, "Occ %": 95, "Rent growth %": 4, "Asset Value Growth (%/yr)": 4})
 
     df_default_units = pd.DataFrame(units_data)
+    
     col_conf = {
         "AssetClass": st.column_config.SelectboxColumn(options=["office", "residential", "retail", "logistics", "hotel"]),
         "Mode": st.column_config.SelectboxColumn(options=["Rent", "Sale", "Mixed"]),
