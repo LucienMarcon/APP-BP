@@ -8,7 +8,7 @@ class General:
     Reference: TXT File [Feuille General]
     """
     def __init__(self, inputs):
-        # --- INPUTS (Valeurs saisies) ---
+        # --- INPUTS ---
         self.land_area = inputs.get('land_area', 7454)
         self.parcels = inputs.get('parcels', 3)
         self.construction_rate = inputs.get('construction_rate', 60.0) / 100.0
@@ -23,25 +23,53 @@ class General:
         self.tax_holiday = inputs.get('tax_holiday', 3)
         self.discount_rate = inputs.get('discount_rate', 10.0) / 100.0
         
-        # --- CALCULATED OUTPUTS (Formules Excel) ---
-        
-        # Cellule D16 : Buildable footprint (Emprise bâtie)
-        # Formule = Land Area * Construction Rate
+        # --- CALCULATED OUTPUTS ---
+        # Cell D16: Buildable footprint
         self.buildable_footprint = self.land_area * self.construction_rate
         
-        # Cellule D17 : GFA (Constructed m²)
-        # Formule = Buildable footprint * FAR
+        # Cell D17: GFA
         self.gfa = self.buildable_footprint * self.far
         
-        # Cellule D18 : GLA (Usable m²)
-        # Formule = GFA * Building Efficiency
+        # Cell D18: GLA
         self.gla = self.gfa * self.building_efficiency
+
+class Parking:
+    """
+    Reconstructs the 'Parking' sheet logic.
+    Calculates required spaces based on Unit Mix and specific columns.
+    Reference: TXT File [Feuille Parking] & [Feuille Units]
+    """
+    def __init__(self, inputs, df_units: pd.DataFrame):
+        # Input cost from Parking sheet
+        self.cost_per_space = inputs.get('cost_per_space', 18754)
+        
+        self.total_spaces = 0
+        
+        # Logic: Iterate through units to calculate spaces
+        # Formula: Fixed Spaces + (Surface / 100 * Ratio)
+        if not df_units.empty:
+            for _, row in df_units.iterrows():
+                # Secure retrieval of columns (handle cases where cols might be missing initally)
+                fixed_spaces = pd.to_numeric(row.get('Parking per unit', 0), errors='coerce')
+                ratio_per_100m2 = pd.to_numeric(row.get('Parking ratio', 0), errors='coerce')
+                surface = pd.to_numeric(row.get('Surface (m²)', 0), errors='coerce')
+                
+                # Handle NaNs
+                if pd.isna(fixed_spaces): fixed_spaces = 0
+                if pd.isna(ratio_per_100m2): ratio_per_100m2 = 0
+                if pd.isna(surface): surface = 0
+                
+                # Calculation
+                spaces = fixed_spaces + ((surface / 100) * ratio_per_100m2)
+                self.total_spaces += spaces
+        
+        # Final CAPEX Calculation
+        self.total_capex = self.total_spaces * self.cost_per_space
 
 class Construction:
     """
     Reconstructs the 'Construction' sheet logic exactly.
-    Now supports DYNAMIC Asset Classes via a DataFrame input.
-    Reference: TXT File [Feuille Construction]
+    Includes the branching logic: Global Cost vs Research Cost per Asset Class.
     """
     def __init__(self, inputs, general: General, df_units: pd.DataFrame):
         # --- INPUTS ---
@@ -65,11 +93,11 @@ class Construction:
         self.use_research_cost = inputs.get('use_research_cost', True)
         
         # DYNAMIC ASSET CLASSES TABLE
-        # Expects a DataFrame with columns: ['Asset Class', 'Cost €/m²']
         self.df_asset_costs = inputs.get('df_asset_costs', pd.DataFrame())
 
-        # Amenities
+        # Amenities & Parking Inputs
         self.amenities_capex = inputs.get('amenities_total_capex', 0)
+        self.parking_capex = inputs.get('parking_capex', 0) # Coming from Parking Class output
         
         # --- CALCULATIONS ---
 
@@ -83,13 +111,11 @@ class Construction:
         
         if self.use_research_cost and not self.df_asset_costs.empty:
             # METHOD B: Dynamic Cost per Asset Class
-            # Loop through the Cost Table defined by user
             for _, row in self.df_asset_costs.iterrows():
                 asset_name = str(row['Asset Class'])
                 cost_per_m2 = row['Cost €/m²']
                 
                 # Smart Match: We look for the asset name INSIDE the Unit Type
-                # Ex: If Asset Class is "Office", it will sum "Office-Large", "Office-Small"
                 mask = df_units['Type'].str.contains(asset_name, case=False, na=False)
                 gla_for_this_asset = df_units.loc[mask, 'Surface (m²)'].sum()
                 
@@ -97,7 +123,6 @@ class Construction:
                 eff_decimal = general.building_efficiency
                 gfa_for_this_asset = gla_for_this_asset / eff_decimal if eff_decimal else 0
                 
-                # Add to total
                 self.total_hard_costs += (gfa_for_this_asset * cost_per_m2)
                 
         else:
@@ -117,8 +142,8 @@ class Construction:
         self.capex_construction_only = subtotal + self.contingency_amount
         
         # 6. FINAL TOTAL
-        parking_capex = inputs.get('parking_capex', 0) 
-        self.total_capex = self.capex_construction_only + self.amenities_capex + parking_capex
+        # We integrate the Parking CAPEX here, ensuring compatibility
+        self.total_capex = self.capex_construction_only + self.amenities_capex + self.parking_capex
 
     def get_yearly_capex(self):
         return {
@@ -130,24 +155,20 @@ class Construction:
 class Financing:
     """
     Reconstructs 'Financing' sheet logic.
-    Reference: TXT File [Feuille Financing]
     """
     def __init__(self, inputs, total_investment_cost):
-        # Inputs
-        self.debt_amount_input = inputs.get('debt_amount', 14500000.0) # Explicit input in text file
+        self.debt_amount_input = inputs.get('debt_amount', 14500000.0)
         self.interest_rate = inputs.get('interest_rate', 4.5) / 100.0
         self.loan_term = int(inputs.get('loan_term', 20))
-        self.grace_period = int(inputs.get('grace_period', 2)) # Years
+        self.grace_period = int(inputs.get('grace_period', 2))
         
         self.arrangement_fee_pct = inputs.get('arrangement_fee_pct', 1.0) / 100.0
         self.upfront_fees_flat = inputs.get('upfront_fees', 150000.0)
         self.prepayment_fee_pct = inputs.get('prepayment_fee_pct', 2.0) / 100.0
 
-        # Logic
         self.debt_principal = self.debt_amount_input
         self.equity_needed = total_investment_cost - self.debt_principal
         
-        # Fees Calculation
         self.arrangement_fee_amt = self.debt_principal * self.arrangement_fee_pct
         self.total_upfront_fees = self.arrangement_fee_amt + self.upfront_fees_flat
 
@@ -171,34 +192,28 @@ class OperationExit:
 class Amortization:
     """
     Reconstructs 'Amortization' sheet logic exactly.
-    Crucial: Handles Grace Period (Interest Only) vs Amortization.
     """
     def __init__(self, financing: Financing):
-        self.schedule = {} # Key: Year, Value: Dict
+        self.schedule = {}
         
         balance = financing.debt_principal
         rate = financing.interest_rate
         term = financing.loan_term
         grace = financing.grace_period
         
-        # Excel Logic: PMT is calculated on the remaining term AFTER grace
         amortization_duration = term - grace
         
         if amortization_duration > 0:
-            # Standard annuity formula
-            # PMT = P * r * (1+r)^n / ((1+r)^n - 1)
             annuity = npf.pmt(rate, amortization_duration, -balance)
         else:
             annuity = 0
 
-        for year in range(1, term + 2): # Go one extra year just in case
+        for year in range(1, term + 2):
             if year <= grace:
-                # Interest Only
                 interest = balance * rate
                 principal = 0
                 payment = interest
             elif year <= term:
-                # Principal + Interest
                 interest = balance * rate
                 payment = annuity
                 principal = payment - interest
@@ -207,7 +222,6 @@ class Amortization:
                 principal = 0
                 payment = 0
             
-            # Store Data
             self.schedule[year] = {
                 'opening': balance,
                 'payment': payment,
@@ -221,59 +235,44 @@ class Amortization:
 
 class Scheduler:
     """
-    Reconstructs 'RentSchedule' and 'SaleSchedule' by aggregating 'Units'.
-    Iterates through the Unit List dataframe.
+    Reconstructs 'RentSchedule' and 'SaleSchedule'.
     """
     def __init__(self, df_units, operation: OperationExit, general: General, financing: Financing):
-        self.rent_schedule = {} # Year -> Value
-        self.sale_schedule = {} # Year -> Value
-        self.exit_noi = 0
+        self.rent_schedule = {}
+        self.sale_schedule = {}
         
-        years = range(1, operation.holding_period + 2) # +1 for N+1 calculation
+        years = range(1, operation.holding_period + 2)
         
-        # Initialize
         for y in years:
             self.rent_schedule[y] = 0.0
             self.sale_schedule[y] = 0.0
             
-        # Logic: Iterate Rows
         for _, row in df_units.iterrows():
-            # Parse Unit Inputs
             surface = row['Surface (m²)']
             base_rent_monthly = row['Rent (€/m²/mo)']
             base_price_m2 = row['Price (€/m²)']
-            mode = row['Mode'] # Rent, Sale, Mixed
+            mode = row['Mode']
             
             start_year = int(row['Start Year']) if pd.notna(row['Start Year']) else 999
             
-            # Handle "Exit" string in Sale Year
             sale_year_raw = row['Sale Year']
             if str(sale_year_raw).lower() == 'exit':
                 sale_year = operation.holding_period
             elif pd.notna(sale_year_raw):
                 sale_year = int(sale_year_raw)
             else:
-                sale_year = 999 # Never sold
+                sale_year = 999
                 
-            # --- RENT CALCULATION LOOP ---
             if mode in ['Rent', 'Mixed']:
-                current_rent_m2 = base_rent_monthly * 12 # Annual
-                
+                current_rent_m2 = base_rent_monthly * 12
                 for y in years:
-                    # Indexation applies from Year 1? Usually Start Year.
-                    # Excel formula often: Base * (1+Growth)^(Year - Start)
                     if y >= start_year and y <= sale_year:
-                        # Apply Indexation
                         indexed_rent = current_rent_m2 * ((1 + operation.rent_growth) ** (y - start_year))
-                        # Apply Occupancy
                         val = surface * indexed_rent * operation.occupancy_default
                         self.rent_schedule[y] += val
 
-            # --- SALE CALCULATION LOOP ---
             if mode in ['Sale', 'Mixed']:
                 if sale_year <= operation.holding_period:
-                    # Unit Sale during life
-                    # Price grows with inflation usually
                     price_indexed = base_price_m2 * ((1 + operation.inflation) ** (sale_year - start_year)) 
                     val = surface * price_indexed
                     self.sale_schedule[sale_year] += val
@@ -281,7 +280,6 @@ class Scheduler:
 class CashflowEngine:
     """
     Reconstructs the final 'Cashflow' sheet.
-    Consolidates all other models.
     """
     def __init__(self, 
                  general: General, 
@@ -297,62 +295,37 @@ class CashflowEngine:
         years = range(0, operation.holding_period + 1)
         data = []
         
-        # Prepare Exit Value (Year N+1 NOI)
-        # We need Rent N+1 and OPEX N+1
         rent_n_plus_1 = scheduler.rent_schedule[operation.holding_period + 1]
         
-        # OPEX N+1 Logic
-        # Fixed OPEX (on GFA) + Variable PM Fee (on Rent)
         opex_fixed_n1 = general.gfa * operation.opex_per_m2 * ((1 + operation.inflation) ** (operation.holding_period))
         opex_var_n1 = rent_n_plus_1 * operation.pm_fee_pct
         noi_n_plus_1 = rent_n_plus_1 - (opex_fixed_n1 + opex_var_n1)
         
-        # Gross Exit Value
         gross_exit_val = noi_n_plus_1 / operation.exit_yield
         net_exit_val = gross_exit_val * (1 - operation.transac_fees_exit)
 
-        # --- WATERFALL LOOP ---
         for y in years:
             row = {'Year': y}
             
             if y == 0:
-                # --- YEAR 0 (Investment) ---
-                # Note: In text file, Land might be Y0, Construction Y1-3. 
-                # We assume Land is Y0 outflow.
-                land_out = -general.land_area * 0 # User didn't provide Land Price in General sheet, usually in Investment check. 
-                # Assuming total equity covers the gap.
-                
                 row['Rental Income'] = 0
                 row['Sales Income'] = 0
                 row['OPEX'] = 0
                 row['NOI'] = 0
-                
-                # CAPEX Y0? Usually S-curve starts Y1. 
                 row['CAPEX'] = 0 
-                
-                # Financing Y0
-                row['Debt Drawdown'] = 0 # Debt usually drawn as CAPEX is spent or at end. 
-                # SIMPLIFICATION FIX: Text file implies Equity + Debt covers CAPEX. 
-                # Often Debt is drawn Y0 to cover purchase or Y1.
-                # Let's follow standard: Debt Drawdown matches CAPEX need or is lump sum.
-                # Text file "Financing" has "Upfront fees total".
-                
                 row['Debt Service'] = 0
                 row['Upfront Fees'] = -financing.total_upfront_fees
                 row['Tax'] = 0
-                row['Net Cash Flow'] = row['Upfront Fees'] # + Equity injection later
+                row['Net Cash Flow'] = row['Upfront Fees']
+                row['Debt Drawdown'] = 0
                 
             else:
-                # --- OPERATIONS ---
                 rent = scheduler.rent_schedule[y]
                 sales = scheduler.sale_schedule[y]
                 
-                # Add Terminal Value if Exit Year
                 if y == operation.holding_period:
                     sales += net_exit_val
                 
-                # OPEX
-                # Inflation starts Y1
                 opex_fixed = general.gfa * operation.opex_per_m2 * ((1 + operation.inflation) ** (y - 1))
                 opex_var = rent * operation.pm_fee_pct
                 total_opex = opex_fixed + opex_var
@@ -364,41 +337,23 @@ class CashflowEngine:
                 row['OPEX'] = -total_opex
                 row['NOI'] = noi
                 
-                # CAPEX (Construction S-Curve)
                 capex_amt = construction.get_yearly_capex().get(y, 0)
                 row['CAPEX'] = -capex_amt
                 
-                # DEBT SERVICE
-                debt_data = amortization.schedule.get(y, {'payment': 0, 'closing': 0})
+                debt_data = amortization.schedule.get(y, {'payment': 0, 'closing': 0, 'interest': 0})
                 payment = debt_data['payment']
                 
-                # Bullet Repayment at Exit
                 bullet = 0
                 prep_fee = 0
                 if y == operation.holding_period:
-                    balance_remaining = debt_data['closing'] # The balance after the last payment of the year
-                    bullet = balance_remaining
+                    bullet = debt_data['closing']
                     prep_fee = bullet * financing.prepayment_fee_pct
                 
                 total_debt_service = payment + bullet + prep_fee
                 row['Debt Service'] = -total_debt_service
                 
-                # DEBT DRAWDOWN
-                # If we are in construction phase, we might draw debt. 
-                # Text file "Financing" says Debt = 14.5M. 
-                # Simple approach: Drawdown at Y1 or spread? 
-                # Usually Drawdown balances CAPEX. 
-                # To stick to text file: Debt is an Input. Let's assume full drawdown Y0 or Y1.
-                # Given S-curve, let's put Drawdown Y1 to offset CAPEX Y1?
-                # Or simple: Drawdown Y0. 
-                # Let's put Drawdown Y0 in Row 0 logic? No, Debt Drawdown is usually a positive cash flow.
-                row['Debt Drawdown'] = 0 # Handled in Equity calc
-                
-                # TAX
-                # EBT = NOI - Interest - Depreciation (ignored here as not in TXT logic)
                 interest = debt_data['interest']
-                ebt = noi - interest - total_opex # Wait, NOI already has OPEX
-                ebt = noi - interest 
+                ebt = noi - interest
                 
                 tax = 0
                 if ebt > 0 and y > general.tax_holiday:
@@ -406,51 +361,29 @@ class CashflowEngine:
                 
                 row['Tax'] = -tax
                 row['Upfront Fees'] = 0
+                row['Debt Drawdown'] = 0
                 
-                # NET CASH FLOW
-                # Formula: NOI + CAPEX + DebtService + Tax + Drawdown
-                # Note: CAPEX and DebtService are negative
                 row['Net Cash Flow'] = noi + row['CAPEX'] + row['Debt Service'] + row['Tax']
             
             data.append(row)
             
         self.df = pd.DataFrame(data).set_index('Year')
         
-        # HANDLE EQUITY (Year 0 Adjustment)
-        # Net CF Y0 is currently just fees. 
-        # We need to pay for Land (if any) + Construction gap.
-        # Simplified "Unlevered" to "Levered" logic:
-        # Equity = Total Investment - Debt
-        
-        # Correction: Add Debt Drawdown to cover CAPEX?
-        # The classic model:
-        # Unlevered CF = NOI - CAPEX - Tax
-        # Levered CF = Unlevered + Debt Drawdown - Debt Service
-        
-        # Let's inject Debt Drawdown at Y0/Y1 to match CAPEX needs?
-        # Text file Financing: "Debt 14,504,578".
-        # Let's add this positive cashflow in Y1 (start of works)
+        # HANDLE EQUITY INJECTION (Drawdown)
         if 1 in self.df.index:
             self.df.at[1, 'Debt Drawdown'] = financing.debt_amount_input
-            # Recompute Y1 Net CF
             self.df.at[1, 'Net Cash Flow'] += financing.debt_amount_input
             
-        # Calculation of KPIs
-        self.calculate_kpis(general.discount_rate, construction.total_capex + general.land_area*0) # Need land cost input
+        self.calculate_kpis(general.discount_rate)
 
-    def calculate_kpis(self, discount_rate, total_project_cost):
+    def calculate_kpis(self, discount_rate):
         flows = self.df['Net Cash Flow'].values
         
-        # IRR
-        try:
-            irr = npf.irr(flows)
-        except:
-            irr = 0
+        try: irr = npf.irr(flows)
+        except: irr = 0
             
-        # NPV
         npv = npf.npv(discount_rate, flows)
         
-        # Equity Multiple
         negative_flows = flows[flows < 0].sum()
         positive_flows = flows[flows > 0].sum()
         equity_needed = abs(negative_flows)
@@ -461,7 +394,4 @@ class CashflowEngine:
             'NPV': npv,
             'Equity Multiple': moic,
             'Peak Equity': equity_needed
-
         }
-
-
