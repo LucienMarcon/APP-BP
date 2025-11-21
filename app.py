@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px # Using Plotly for sexy charts
+import plotly.express as px
 from financial_model import General, Construction, Financing, OperationExit, Amortization, Scheduler, CashflowEngine, Parking
 
 st.set_page_config(layout="wide", page_title="ImmoGenius", page_icon="🏢")
 
-# --- CUSTOM CSS FOR SEXY LOOK ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
@@ -178,18 +178,24 @@ if st.button("✨ GÉNÉRER LE BUSINESS PLAN", type="primary", use_container_wid
         k3.metric("Peak Equity", f"€{cf.kpis['Peak Equity']:,.0f}")
         k4.metric("Profit (NPV)", f"€{cf.kpis['NPV']:,.0f}")
 
-        tab_r1, tab_r2, tab_r3 = st.tabs(["📊 Cashflows", "📋 Rent Schedule", "📑 Détails"])
+        tab_r1, tab_r2, tab_r3, tab_r4 = st.tabs(["📊 Cashflows", "📈 Rent Schedule", "📉 Sale Schedule", "📑 Détails"])
         
         with tab_r1:
             st.bar_chart(cf.df[['NOI', 'Debt Service', 'Net Cash Flow']], color=["#22c55e", "#ef4444", "#3b82f6"])
         
         with tab_r2:
-            st.markdown("#### Rent Schedule (Chiffre d'Affaires par Asset Class)")
+            st.markdown("#### Chiffre d'Affaires Locatif (Rent Schedule)")
             df_rent_sched = pd.DataFrame(sched.rent_schedule_by_asset)
             st.dataframe(df_rent_sched.style.format("{:,.0f}"), use_container_width=True)
             st.area_chart(df_rent_sched)
 
         with tab_r3:
+            st.markdown("#### Chiffre d'Affaires Ventes (Sale Schedule)")
+            df_sale_sched = pd.DataFrame(sched.sale_schedule_by_asset)
+            st.dataframe(df_sale_sched.style.format("{:,.0f}"), use_container_width=True)
+            st.bar_chart(df_sale_sched)
+
+        with tab_r4:
             st.dataframe(cf.df.style.format("{:,.0f}"), use_container_width=True)
 
     except Exception as e:
