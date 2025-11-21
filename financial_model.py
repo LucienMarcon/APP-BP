@@ -27,16 +27,20 @@ class Parking:
     def __init__(self, inputs, df_units: pd.DataFrame):
         self.cost_per_space = inputs.get('cost_per_space', 18754)
         self.total_spaces = 0
+        
         if not df_units.empty:
             for _, row in df_units.iterrows():
                 fixed = pd.to_numeric(row.get('Parking per unit', 0), errors='coerce')
                 ratio = pd.to_numeric(row.get('Parking ratio', 0), errors='coerce')
                 surface = pd.to_numeric(row.get('Surface (m²)', 0), errors='coerce')
+                
                 if pd.isna(fixed): fixed = 0
                 if pd.isna(ratio): ratio = 0
                 if pd.isna(surface): surface = 0
+                
                 spaces = fixed + ((surface / 100) * ratio)
                 self.total_spaces += spaces
+        
         self.total_capex = self.total_spaces * self.cost_per_space
 
 class Construction:
@@ -122,8 +126,13 @@ class CapexSummary:
     Reconstructs 'CAPEX_Summary' sheet logic.
     """
     def __init__(self, construction: Construction, financing: Financing):
+        # Cell B4: Construction pre-financing (Construction!D39)
         self.construction_pre_financing = construction.total_capex
+        
+        # Cell B5: Upfront financing fees (Financing!D13)
         self.upfront_financing_fees = financing.total_upfront_fees
+        
+        # Cell B6: TOTAL CAPEX
         self.total_capex = self.construction_pre_financing + self.upfront_financing_fees
 
 class OperationExit:
@@ -222,18 +231,7 @@ class Scheduler:
                     self.sale_schedule_by_asset[asset_key][sale_year] += val
 
 class CashflowEngine:
-    """
-    Reconstructs the final 'Cashflow' sheet.
-    """
-    def __init__(self, 
-                 general: General, 
-                 construction: Construction, 
-                 financing: Financing, 
-                 capex_summary: CapexSummary,
-                 operation: OperationExit, 
-                 amortization: Amortization, 
-                 scheduler: Scheduler):
-        
+    def __init__(self, general: General, construction: Construction, financing: Financing, capex_summary: CapexSummary, operation: OperationExit, amortization: Amortization, scheduler: Scheduler):
         self.df = pd.DataFrame()
         self.kpis = {}
         years = range(0, operation.holding_period + 1)
