@@ -3,50 +3,36 @@ import numpy_financial as npf
 import pandas as pd
 
 class General:
-    """
-    Reconstructs the 'General' sheet logic.
-    """
     def __init__(self, inputs):
         self.land_area = inputs.get('land_area', 7454)
         self.parcels = inputs.get('parcels', 3)
         self.construction_rate = inputs.get('construction_rate', 60.0) / 100.0
         self.far = inputs.get('far', 3.45)
         self.building_efficiency = inputs.get('building_efficiency', 80.0) / 100.0
+        self.country = inputs.get('country', "Tanzanie")
+        self.city = inputs.get('city', "Dar es Salaam")
+        self.fx_eur_local = inputs.get('fx_eur_local', 2853.1)
         self.corporate_tax_rate = inputs.get('corporate_tax_rate', 30.0) / 100.0
         self.tax_holiday = inputs.get('tax_holiday', 3)
         self.discount_rate = inputs.get('discount_rate', 10.0) / 100.0
-        
         self.buildable_footprint = self.land_area * self.construction_rate
         self.gfa = self.buildable_footprint * self.far
         self.gla = self.gfa * self.building_efficiency
 
 class Parking:
-    """
-    Reconstructs the 'Parking' sheet logic.
-    """
     def __init__(self, inputs, df_units: pd.DataFrame):
         self.cost_per_space = inputs.get('cost_per_space', 18754)
         self.total_spaces = 0
-        
         if not df_units.empty:
             for _, row in df_units.iterrows():
                 fixed = pd.to_numeric(row.get('Parking per unit', 0), errors='coerce')
                 ratio = pd.to_numeric(row.get('Parking ratio', 0), errors='coerce')
                 surface = pd.to_numeric(row.get('Surface (m²)', 0), errors='coerce')
-                
-                if pd.isna(fixed): fixed = 0
-                if pd.isna(ratio): ratio = 0
-                if pd.isna(surface): surface = 0
-                
-                spaces = fixed + ((surface / 100) * ratio)
+                spaces = (fixed if not pd.isna(fixed) else 0) + ((surface / 100) * (ratio if not pd.isna(ratio) else 0))
                 self.total_spaces += spaces
-        
         self.total_capex = self.total_spaces * self.cost_per_space
 
 class Construction:
-    """
-    Reconstructs the 'Construction' sheet logic.
-    """
     def __init__(self, inputs, general: General, df_units: pd.DataFrame):
         self.structure_cost = inputs.get('structure_cost', 800)
         self.finishing_cost = inputs.get('finishing_cost', 400)
@@ -59,7 +45,6 @@ class Construction:
         self.s_curve_y1 = inputs.get('s_curve_y1', 40.0) / 100.0
         self.s_curve_y2 = inputs.get('s_curve_y2', 40.0) / 100.0
         self.s_curve_y3 = inputs.get('s_curve_y3', 20.0) / 100.0
-
         self.use_research_cost = inputs.get('use_research_cost', True)
         self.df_asset_costs = inputs.get('df_asset_costs', pd.DataFrame())
         self.amenities_capex = inputs.get('amenities_total_capex', 0)
@@ -85,24 +70,15 @@ class Construction:
 
         soft_pct = self.architect_fees_pct + self.development_fees_pct + self.marketing_fees_pct
         self.total_soft_fees = (self.total_hard_costs * (soft_pct / 100)) + self.permit_fees
-
         subtotal = self.total_hard_costs + self.total_soft_fees
         self.contingency_amount = subtotal * (self.contingency_pct / 100)
-        
         self.capex_construction_only = subtotal + self.contingency_amount
         self.total_capex = self.capex_construction_only + self.amenities_capex + self.parking_capex
 
     def get_yearly_capex(self):
-        return {
-            1: self.total_capex * self.s_curve_y1,
-            2: self.total_capex * self.s_curve_y2,
-            3: self.total_capex * self.s_curve_y3
-        }
+        return {1: self.total_capex * self.s_curve_y1, 2: self.total_capex * self.s_curve_y2, 3: self.total_capex * self.s_curve_y3}
 
 class Financing:
-    """
-    Reconstructs 'Financing' sheet logic.
-    """
     def __init__(self, inputs):
         self.debt_amount_input = inputs.get('debt_amount', 14500000.0)
         self.interest_rate = inputs.get('interest_rate', 4.5) / 100.0
@@ -113,26 +89,14 @@ class Financing:
         self.prepayment_fee_pct = inputs.get('prepayment_fee_pct', 2.0) / 100.0
 
         self.debt_principal = self.debt_amount_input
-        
-        # Fees Calculation
         self.arrangement_fee_amt = self.debt_principal * self.arrangement_fee_pct
         self.total_upfront_fees = self.arrangement_fee_amt + self.upfront_fees_flat
-        
-        # Initialisation
-        self.equity_needed = 0
+        self.equity_needed = 0 
 
 class CapexSummary:
-    """
-    Reconstructs 'CAPEX_Summary' sheet logic.
-    """
     def __init__(self, construction: Construction, financing: Financing):
-        # Cell B4: Construction pre-financing (Construction!D39)
         self.construction_pre_financing = construction.total_capex
-        
-        # Cell B5: Upfront financing fees (Financing!D13)
         self.upfront_financing_fees = financing.total_upfront_fees
-        
-        # Cell B6: TOTAL CAPEX
         self.total_capex = self.construction_pre_financing + self.upfront_financing_fees
 
 class OperationExit:
@@ -154,10 +118,7 @@ class Amortization:
         term = financing.loan_term
         grace = financing.grace_period
         amortization_duration = term - grace
-        if amortization_duration > 0:
-            annuity = npf.pmt(rate, amortization_duration, -balance)
-        else:
-            annuity = 0
+        annuity = npf.pmt(rate, amortization_duration, -balance) if amortization_duration > 0 else 0
         for year in range(1, term + 2):
             if year <= grace:
                 interest = balance * rate
@@ -174,20 +135,18 @@ class Amortization:
             if balance < 0: balance = 0
 
 class Scheduler:
-    """
-    Manages Rent Schedule and Sale Schedule.
-    """
     def __init__(self, df_units, operation: OperationExit, general: General, financing: Financing):
         self.rent_schedule = {} 
         self.rent_schedule_by_asset = {} 
         self.sale_schedule = {}
-        self.sale_schedule_by_asset = {} 
-        
+        self.sale_schedule_by_asset = {}
+        self.occupied_area_schedule = {} # NEW: Track rented m² for OPEX
+
         years = range(1, operation.holding_period + 2)
-        
         for y in years:
             self.rent_schedule[y] = 0.0
             self.sale_schedule[y] = 0.0
+            self.occupied_area_schedule[y] = 0.0
             
         asset_classes = df_units['Asset Class'].unique() if 'Asset Class' in df_units.columns else []
         asset_classes = [str(ac).lower().strip() for ac in asset_classes]
@@ -220,9 +179,11 @@ class Scheduler:
                 current_rent_m2 = base_rent_monthly * 12
                 for y in years:
                     if y >= start_year and (is_exit_sale or sale_year > y):
-                        val = surface * (current_rent_m2 * ((1 + rent_growth) ** y)) * occ
+                        indexed_rent = current_rent_m2 * ((1 + rent_growth) ** y)
+                        val = surface * indexed_rent * occ
                         self.rent_schedule[y] += val
                         self.rent_schedule_by_asset[asset_key][y] += val
+                        self.occupied_area_schedule[y] += (surface * occ)
 
             if mode in ['sale', 'mixed']:
                 if not is_exit_sale and sale_year in years:
@@ -231,55 +192,166 @@ class Scheduler:
                     self.sale_schedule_by_asset[asset_key][sale_year] += val
 
 class CashflowEngine:
+    """
+    Reconstructs the Cashflow sheet according to specific user mapping.
+    """
     def __init__(self, general: General, construction: Construction, financing: Financing, capex_summary: CapexSummary, operation: OperationExit, amortization: Amortization, scheduler: Scheduler):
         self.df = pd.DataFrame()
         self.kpis = {}
         years = range(0, operation.holding_period + 1)
         data = []
         
+        # Exit Valuation (Cell A16: NOI n+1)
         rent_n = scheduler.rent_schedule.get(operation.holding_period, 0)
-        opex_fixed_n = general.gfa * operation.opex_per_m2 * ((1 + operation.inflation) ** (operation.holding_period - 1))
+        # OPEX at Exit Year (Calculated same as yearly flow)
+        opex_fixed_n = scheduler.occupied_area_schedule.get(operation.holding_period, 0) * operation.opex_per_m2 * ((1 + operation.inflation) ** (operation.holding_period - 1))
         opex_var_n = rent_n * operation.pm_fee_pct
         noi_n = rent_n - (opex_fixed_n + opex_var_n)
+        
+        # Apply Growth for N+1
         noi_n_plus_1 = noi_n * (1 + operation.rent_growth)
-        net_exit_val = (noi_n_plus_1 / operation.exit_yield) * (1 - operation.transac_fees_exit)
+        gross_exit_val = noi_n_plus_1 / operation.exit_yield
+        net_exit_val = gross_exit_val * (1 - operation.transac_fees_exit)
+
+        # LTC Ratio for Drawdowns (Cell Financing!D12 logic applied to Drawdowns)
+        # Drawdown = Investment_Flow * (Debt / Total_Capex)
+        ltc_ratio = financing.debt_principal / capex_summary.total_capex if capex_summary.total_capex > 0 else 0
 
         for y in years:
             row = {'Year': y}
             if y == 0:
-                row['Rental Income'] = 0; row['Sales Income'] = 0; row['OPEX'] = 0; row['NOI'] = 0
-                row['CAPEX'] = 0; row['Debt Service'] = 0; row['Tax'] = 0; row['Debt Drawdown'] = 0
-                row['Upfront Fees'] = -financing.total_upfront_fees
-                row['Net Cash Flow'] = row['Upfront Fees']
+                row['Rental Income'] = 0; row['Sales Proceeds'] = 0; row['Exit Proceeds'] = 0
+                row['Total Revenues'] = 0
+                row['Prop. Mgmt'] = 0; row['Op. Expenses'] = 0; row['Total OPEX'] = 0
+                row['NOI'] = 0
+                row['Corporate Tax'] = 0
+                row['CAPEX'] = 0
+                row['Unlevered CF'] = 0 # Calculated below
+                row['Drawdowns'] = 0
+                row['Interest'] = 0
+                row['Principal'] = 0
+                row['Prepayment'] = 0
+                row['Levered CF'] = 0
+                row['Equity Injection'] = 0
+                row['Equity CF'] = 0
+                
+                # Y0 Specifics
+                # According to logic map: Y0 often has 0 flow except Equity Injection and Fees?
+                # But prompt says Equity Injection B36 = -Financing!B4
+                # And Financing!B4 = Total Capex - Debt.
+                # So Equity is injected at Y0.
+                row['Equity Injection'] = -(capex_summary.total_capex - financing.debt_principal)
+                row['Equity CF'] = row['Equity Injection']
+
             else:
+                # 1. OPERATIONS
                 rent = scheduler.rent_schedule.get(y, 0)
-                sales = scheduler.sale_schedule.get(y, 0) + (net_exit_val if y == operation.holding_period else 0)
-                opex = (general.gfa * operation.opex_per_m2 * ((1 + operation.inflation) ** (y - 1))) + (rent * operation.pm_fee_pct)
-                noi = rent + sales - opex
-                row['Rental Income'] = rent; row['Sales Income'] = sales; row['OPEX'] = -opex; row['NOI'] = noi
-                row['CAPEX'] = -construction.get_yearly_capex().get(y, 0)
-                debt = amortization.schedule.get(y, {'payment': 0, 'closing': 0, 'interest': 0})
-                bullet = debt['closing'] if y == operation.holding_period else 0
-                prep_fee = bullet * financing.prepayment_fee_pct
-                row['Debt Service'] = -(debt['payment'] + bullet + prep_fee)
-                ebt = noi - debt['interest']
-                row['Tax'] = -(ebt * general.corporate_tax_rate) if (ebt > 0 and y > general.tax_holiday) else 0
-                row['Upfront Fees'] = 0; row['Debt Drawdown'] = 0
-                row['Net Cash Flow'] = noi + row['CAPEX'] + row['Debt Service'] + row['Tax']
+                unit_sales = scheduler.sale_schedule.get(y, 0)
+                exit_proc = net_exit_val if y == operation.holding_period else 0
+                
+                row['Rental Income'] = rent
+                row['Sales Proceeds'] = unit_sales
+                row['Exit Proceeds'] = exit_proc
+                row['Total Revenues'] = rent + unit_sales + exit_proc # Note: NOI usually excludes Exit, but Unlevered CF includes it.
+                # Correction based on prompt Cell A16 (NOI) = B9 - B14 (Revenues - OPEX).
+                # If B9 includes Exit (Cell A8), then NOI includes Exit? 
+                # Prompt A9 = Sum(B6, B7). B6=Rent, B7=Sales. B8=Exit.
+                # Wait, Prompt A9 formula is =B6+B7. It DOES NOT include B8 (Exit).
+                # So NOI = Rent + Unit Sales - OPEX.
+                # Exit is added later in Unlevered CF (Cell B23).
+                
+                op_revenue_noi = rent + unit_sales 
+
+                # OPEX
+                pm_fee = rent * operation.pm_fee_pct
+                # OPEX Fixed: Area * Rate * Inflation. Note: inflation starts Y1? Prompt says "for opex".
+                # Formula A13: Operation!B5 * RentSchedule!B19. RentSchedule!B19 is m² Rented.
+                # Assuming inflation applied in Operation!B5 or implicitly. We apply it here for robustness.
+                area_rented = scheduler.occupied_area_schedule.get(y, 0)
+                opex_fixed = area_rented * operation.opex_per_m2 * ((1 + operation.inflation) ** (y - 1))
+                
+                row['Prop. Mgmt'] = -pm_fee
+                row['Op. Expenses'] = -opex_fixed
+                row['Total OPEX'] = -(pm_fee + opex_fixed)
+                
+                row['NOI'] = op_revenue_noi - (pm_fee + opex_fixed)
+                
+                # Tax
+                # Prompt A19: If Y <= Holiday, 0. Else Tax on NOI.
+                tax = 0
+                if y > general.tax_holiday and row['NOI'] > 0:
+                    tax = row['NOI'] * general.corporate_tax_rate
+                row['Corporate Tax'] = -tax
+
+                # Investments (CAPEX)
+                # Formula A21: Construction S-Curve * Total CAPEX Summary
+                # Total CAPEX Summary includes Fees. So Fees are distributed too.
+                s_curve_pct = construction.get_yearly_capex().get(y, 0) / construction.total_capex if construction.total_capex > 0 else 0
+                # Actually Construction.get_yearly gives amounts.
+                # We need % from S-Curve inputs.
+                s_curve_map = {1: construction.s_curve_y1, 2: construction.s_curve_y2, 3: construction.s_curve_y3}
+                yearly_capex_dist = s_curve_map.get(y, 0) * capex_summary.total_capex
+                row['CAPEX'] = -yearly_capex_dist
+
+                # Unlevered Operating CF (A23)
+                # Formula: NOI - Tax - CAPEX + Exit Proceeds
+                row['Unlevered CF'] = row['NOI'] + row['Corporate Tax'] + row['CAPEX'] + exit_proc
+
+                # 2. FINANCING
+                # Drawdowns (A27): CAPEX * LTC
+                row['Drawdowns'] = yearly_capex_dist * ltc_ratio
+                
+                # Debt Service
+                debt_data = amortization.schedule.get(y, {'payment': 0, 'closing': 0, 'interest': 0, 'principal': 0})
+                row['Interest'] = -debt_data['interest']
+                
+                # Principal & Bullet
+                principal = debt_data['principal']
+                bullet = 0
+                prepayment = 0
+                
+                if y == operation.holding_period:
+                    bullet = debt_data['closing'] # Pay remaining
+                    prepayment = bullet * financing.prepayment_fee_pct
+                
+                row['Principal'] = -(principal + bullet)
+                row['Prepayment'] = -prepayment
+                
+                # Levered CF (A32)
+                # Unlevered + Drawdowns + Interest + Principal + Prepay
+                row['Levered CF'] = row['Unlevered CF'] + row['Drawdowns'] + row['Interest'] + row['Principal'] + row['Prepayment']
+
+                # 3. EQUITY
+                row['Equity Injection'] = 0 # Done at Y0
+                row['Equity CF'] = row['Levered CF'] # + Injection (0 here)
+
             data.append(row)
             
         self.df = pd.DataFrame(data).set_index('Year')
-        if 1 in self.df.index:
-            self.df.at[1, 'Debt Drawdown'] = financing.debt_amount_input
-            self.df.at[1, 'Net Cash Flow'] += financing.debt_amount_input
-            
-        equity_needed = capex_summary.total_capex - financing.debt_principal
-        self.calculate_kpis(general.discount_rate, equity_needed)
+        
+        # Calculate KPIs
+        self.calculate_kpis(general.discount_rate)
 
-    def calculate_kpis(self, discount_rate, equity_needed):
-        flows = self.df['Net Cash Flow'].values
-        try: irr = npf.irr(flows)
-        except: irr = 0
-        npv = npf.npv(discount_rate, flows)
-        positive = flows[flows > 0].sum()
-        self.kpis = {'Levered IRR': irr * 100, 'NPV': npv, 'Equity Multiple': positive / equity_needed if equity_needed > 0 else 0, 'Peak Equity': equity_needed}
+    def calculate_kpis(self, discount_rate):
+        # Unlevered IRR & NPV
+        unlevered_flows = self.df['Unlevered CF'].values
+        try: irr_unlev = npf.irr(unlevered_flows)
+        except: irr_unlev = 0
+        npv_unlev = npf.npv(discount_rate, unlevered_flows)
+
+        # Levered (Equity) IRR & Multiple
+        equity_flows = self.df['Equity CF'].values
+        try: irr_lev = npf.irr(equity_flows)
+        except: irr_lev = 0
+        
+        pos_flows = equity_flows[equity_flows > 0].sum()
+        neg_flows = abs(equity_flows[equity_flows < 0].sum())
+        moic = pos_flows / neg_flows if neg_flows > 0 else 0
+        
+        self.kpis = {
+            'Unlevered IRR': irr_unlev * 100,
+            'Levered IRR': irr_lev * 100,
+            'NPV': npv_unlev,
+            'Equity Multiple': moic,
+            'Peak Equity': neg_flows
+        }
