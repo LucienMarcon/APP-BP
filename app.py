@@ -52,7 +52,7 @@ with step2:
             {"Asset Class": "logistics", "Cost €/m²": 800},
             {"Asset Class": "hotel", "Cost €/m²": 1500},
         ])
-        df_asset_costs = st.data_editor(default_asset_costs, num_rows="dynamic", use_container_width=True, hide_index=True)
+        df_asset_costs = st.data_editor(default_asset_costs, num_rows="dynamic", use_container_width=True)
         i_struct = i_finish = 0
     else:
         c1, c2 = st.columns(2)
@@ -67,7 +67,7 @@ with step2:
         i_contingency = c3.number_input("Contingence (%)", 5.0)
         st.write("Amenities")
         default_amenities = pd.DataFrame([{"Nom": "Padel", "Surface": 300, "Coût": 400, "Actif": True}])
-        edited_amenities = st.data_editor(default_amenities, num_rows="dynamic", hide_index=True)
+        edited_amenities = st.data_editor(default_amenities, num_rows="dynamic")
         am_capex = (edited_amenities[edited_amenities["Actif"]]["Surface"] * edited_amenities[edited_amenities["Actif"]]["Coût"]).sum()
 
     st.caption("S-Curve")
@@ -82,13 +82,11 @@ with step3:
     with col_top_p:
         i_parking_cost = st.number_input("Coût Parking (€)", 18754)
     
-    # Pre-loaded Data matching [Feuille Units] exact headers
+    # Data Loading with EXACT column names
     units_data = []
-    # Offices
     for t in ["OF-L", "OF-M", "OF-S"]:
         surf = 3000 if t != "OF-S" else 2640
         units_data.append({"Code": t, "AssetClass": "office", "Surface (GLA m²)": surf, "Rent (€/m²/mo)": 20, "Price €/m²": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio (per 100 m²)": 2.5, "Occ %": 90, "Rent growth %": 5, "Asset Value Growth (%/yr)": 4.5})
-    # Resi T2/T3/T4 VP & VEFA
     for _ in range(4): units_data.append({"Code": "T2-VP", "AssetClass": "residential", "Surface (GLA m²)": 70, "Rent (€/m²/mo)": 16, "Price €/m²": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio (per 100 m²)": 0, "Occ %": 95, "Rent growth %": 4, "Asset Value Growth (%/yr)": 4})
     for _ in range(6): units_data.append({"Code": "T2-VEFA", "AssetClass": "residential", "Surface (GLA m²)": 70, "Rent (€/m²/mo)": 16, "Price €/m²": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio (per 100 m²)": 0, "Occ %": 95, "Rent growth %": 4, "Asset Value Growth (%/yr)": 4})
     for _ in range(4): units_data.append({"Code": "T3-VP", "AssetClass": "residential", "Surface (GLA m²)": 110, "Rent (€/m²/mo)": 16, "Price €/m²": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio (per 100 m²)": 0, "Occ %": 95, "Rent growth %": 4, "Asset Value Growth (%/yr)": 4})
@@ -97,17 +95,13 @@ with step3:
     for _ in range(6): units_data.append({"Code": "T4-VEFA", "AssetClass": "residential", "Surface (GLA m²)": 150, "Rent (€/m²/mo)": 16, "Price €/m²": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio (per 100 m²)": 0, "Occ %": 95, "Rent growth %": 4, "Asset Value Growth (%/yr)": 4})
 
     df_default_units = pd.DataFrame(units_data)
-    
     col_conf = {
         "AssetClass": st.column_config.SelectboxColumn(options=["office", "residential", "retail", "logistics", "hotel"]),
         "Mode": st.column_config.SelectboxColumn(options=["Rent", "Sale", "Mixed"]),
         "Price €/m²": st.column_config.NumberColumn(format="%d €"),
         "Rent (€/m²/mo)": st.column_config.NumberColumn(format="%.2f €"),
-        "Occ %": st.column_config.NumberColumn(format="%d %%"),
-        "Rent growth %": st.column_config.NumberColumn(format="%.1f %%"),
-        "Asset Value Growth (%/yr)": st.column_config.NumberColumn(format="%.1f %%"),
     }
-    df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True, height=300, hide_index=True)
+    df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True, height=300)
 
 # 4. FINANCE & CAPEX SUMMARY
 with step4:
@@ -158,7 +152,7 @@ if st.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=Tru
         fin = Financing(inp_fin) 
         op = OperationExit(inp_op)
         capex_sum = CapexSummary(const, fin)
-        amort = Amortization(fin, op) 
+        amort = Amortization(fin, op) # Correctly passed 2 arguments
         sched = Scheduler(df_units, op, gen, fin)
         cf = CashflowEngine(gen, const, fin, capex_sum, op, amort, sched)
 
