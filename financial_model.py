@@ -25,7 +25,10 @@ class Parking:
                 fixed = pd.to_numeric(row.get('Parking per unit', 0), errors='coerce')
                 ratio = pd.to_numeric(row.get('Parking ratio', 0), errors='coerce')
                 surface = pd.to_numeric(row.get('Surface (m²)', 0), errors='coerce')
-                spaces = (fixed if not pd.isna(fixed) else 0) + ((surface / 100) * (ratio if not pd.isna(ratio) else 0))
+                if pd.isna(fixed): fixed = 0
+                if pd.isna(ratio): ratio = 0
+                if pd.isna(surface): surface = 0
+                spaces = fixed + ((surface / 100) * ratio)
                 self.total_spaces += spaces
         self.total_capex = self.total_spaces * self.cost_per_space
 
@@ -123,10 +126,8 @@ class Amortization:
             if year > exit_year:
                 self.schedule[year] = {'opening': 0, 'payment': 0, 'interest': 0, 'principal': 0, 'closing': 0}
                 continue
-                
             opening = current_balance
             interest = opening * rate
-            
             if year <= grace:
                 principal = 0
                 payment = interest
@@ -135,10 +136,8 @@ class Amortization:
                 principal = payment - interest
             else:
                 payment = 0; principal = 0; interest = 0
-            
             closing = opening - principal
             if closing < 0.01: closing = 0
-            
             self.schedule[year] = {'opening': opening, 'payment': payment, 'interest': interest, 'principal': principal, 'closing': closing}
             current_balance = closing
 
@@ -187,7 +186,8 @@ class Scheduler:
                 current_rent_m2 = base_rent_monthly * 12
                 for y in years:
                     if y >= start_year and (is_exit_sale or sale_year > y):
-                        val = surface * (current_rent_m2 * ((1 + rent_growth) ** y)) * occ
+                        indexed_rent = current_rent_m2 * ((1 + rent_growth) ** y)
+                        val = surface * indexed_rent * occ
                         self.rent_schedule[y] += val
                         self.rent_schedule_by_asset[asset_key][y] += val
                         self.occupied_area_schedule[y] += (surface * occ)
@@ -226,19 +226,16 @@ class CashflowEngine:
                 rent = scheduler.rent_schedule.get(y, 0)
                 sales = scheduler.sale_schedule.get(y, 0)
                 exit_proc = net_exit_val if y == operation.holding_period else 0
-                
+                row['Exit Proceeds'] = exit_proc
                 area_rented = scheduler.occupied_area_schedule.get(y, 0)
                 opex_fixed = area_rented * operation.opex_per_m2 * ((1 + operation.inflation) ** (y - 1))
                 opex_var = rent * operation.pm_fee_pct
                 noi = rent + sales - (opex_fixed + opex_var)
-                
                 row['Rental Income'] = rent; row['Sales Income'] = sales; row['OPEX'] = -(opex_fixed + opex_var); row['NOI'] = noi
-                row['Exit Proceeds'] = exit_proc
                 
                 s_curve_map = {1: construction.s_curve_y1, 2: construction.s_curve_y2, 3: construction.s_curve_y3}
                 capex_amt = s_curve_map.get(y, 0) * capex_summary.total_capex
                 row['CAPEX'] = -capex_amt
-                
                 row['Drawdowns'] = capex_amt * ltc_ratio
                 
                 debt = amortization.schedule.get(y, {'payment': 0, 'closing': 0, 'interest': 0, 'principal': 0})
