@@ -5,21 +5,27 @@ from financial_model import General, Construction, Financing, OperationExit, Amo
 
 st.set_page_config(layout="wide", page_title="ImmoGenius", page_icon="🏢")
 
+# --- CSS ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
     html, body, [class*="css"] {font-family: 'Inter', sans-serif;}
     .stApp {background-color: #F8F9FA;}
     .stMetric {background: white; padding: 15px; border-radius: 12px; border-left: 5px solid #3B82F6; box-shadow: 0 2px 5px rgba(0,0,0,0.05);}
+    .stTabs [data-baseweb="tab-list"] {gap: 10px;}
+    .stTabs [data-baseweb="tab"] {background-color: white; border-radius: 8px; padding: 10px 20px; border: 1px solid #E2E8F0;}
+    .stTabs [aria-selected="true"] {background-color: #EFF6FF; border-color: #3B82F6; color: #3B82F6;}
     </style>
 """, unsafe_allow_html=True)
 
+# --- HERO HEADER ---
 c_logo, c_titre = st.columns([1, 6])
 with c_logo: st.write("# 🏢")
 with c_titre:
-    st.title("ImmoGenius 3.0 - Final Audit")
-    st.caption("Modélisation Exacte 12/12 Feuilles")
+    st.title("ImmoGenius 3.0")
+    st.caption("Plateforme de Modélisation Immobilière Intelligente")
 
+# --- WIZARD ---
 step1, step2, step3, step4 = st.tabs(["📍 1. Terrain", "🏗️ 2. Construction", "🏘️ 3. Unités", "💰 4. Finance & KPI"])
 
 # 1. TERRAIN
@@ -35,7 +41,7 @@ with step1:
         i_const_rate = uc1.number_input("Emprise (%)", 60)
         i_far = uc2.number_input("FAR", 3.45)
         i_efficiency = uc3.number_input("Efficacité (%)", 80)
-        calc_gfa = (i_land_area * i_const_rate/100) * i_far
+        calc_gfa = i_land_area * i_const_rate/100 * i_far
         calc_gla = calc_gfa * i_efficiency/100
         st.success(f"🏗️ GFA: **{calc_gfa:,.0f} m²** | 🔑 GLA: **{calc_gla:,.0f} m²**")
 
@@ -52,7 +58,7 @@ with step2:
             {"Asset Class": "logistics", "Cost €/m²": 800},
             {"Asset Class": "hotel", "Cost €/m²": 1500},
         ])
-        df_asset_costs = st.data_editor(default_asset_costs, num_rows="dynamic", use_container_width=True)
+        df_asset_costs = st.data_editor(default_asset_costs, num_rows="dynamic", use_container_width=True, hide_index=True)
         i_struct = i_finish = 0
     else:
         c1, c2 = st.columns(2)
@@ -67,7 +73,7 @@ with step2:
         i_contingency = c3.number_input("Contingence (%)", 5.0)
         st.write("Amenities")
         default_amenities = pd.DataFrame([{"Nom": "Padel", "Surface": 300, "Coût": 400, "Actif": True}])
-        edited_amenities = st.data_editor(default_amenities, num_rows="dynamic")
+        edited_amenities = st.data_editor(default_amenities, num_rows="dynamic", hide_index=True)
         am_capex = (edited_amenities[edited_amenities["Actif"]]["Surface"] * edited_amenities[edited_amenities["Actif"]]["Coût"]).sum()
 
     st.caption("S-Curve")
@@ -82,7 +88,7 @@ with step3:
     with col_top_p:
         i_parking_cost = st.number_input("Coût Parking (€)", 18754)
     
-    # Data Loading with EXACT column names
+    # DATA LOADING (Colonnes exactes)
     units_data = []
     for t in ["OF-L", "OF-M", "OF-S"]:
         surf = 3000 if t != "OF-S" else 2640
@@ -101,7 +107,7 @@ with step3:
         "Price €/m²": st.column_config.NumberColumn(format="%d €"),
         "Rent (€/m²/mo)": st.column_config.NumberColumn(format="%.2f €"),
     }
-    df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True, height=300)
+    df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True, height=300, hide_index=True)
 
 # 4. FINANCE & CAPEX SUMMARY
 with step4:
@@ -152,7 +158,7 @@ if st.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=Tru
         fin = Financing(inp_fin) 
         op = OperationExit(inp_op)
         capex_sum = CapexSummary(const, fin)
-        amort = Amortization(fin, op) # Correctly passed 2 arguments
+        amort = Amortization(fin, op) 
         sched = Scheduler(df_units, op, gen, fin)
         cf = CashflowEngine(gen, const, fin, capex_sum, op, amort, sched)
 
