@@ -154,7 +154,7 @@ if st.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=Tru
     try:
         gen = General(inp_gen)
         const = Construction(inp_const, gen, df_units)
-        fin = Financing(inp_fin, const.total_capex)
+        fin = Financing(inp_fin) # CORRECTION ICI: Un seul argument
         capex_sum = CapexSummary(const, fin)
         amort = Amortization(fin)
         op = OperationExit(inp_op)
