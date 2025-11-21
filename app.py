@@ -18,7 +18,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER ---
+# --- HERO HEADER ---
 c_logo, c_titre = st.columns([1, 6])
 with c_logo: st.write("# 🏢")
 with c_titre:
@@ -154,10 +154,10 @@ if st.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=Tru
     try:
         gen = General(inp_gen)
         const = Construction(inp_const, gen, df_units)
-        fin = Financing(inp_fin) 
+        fin = Financing(inp_fin) # Correct initialization
+        op = OperationExit(inp_op) # Init op before amort
         capex_sum = CapexSummary(const, fin)
-        amort = Amortization(fin, OperationExit(inp_op)) # Pass operation for exit year
-        op = OperationExit(inp_op)
+        amort = Amortization(fin, op) # Now op is defined
         sched = Scheduler(df_units, op, gen, fin)
         cf = CashflowEngine(gen, const, fin, capex_sum, op, amort, sched)
 
