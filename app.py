@@ -209,7 +209,6 @@ if st.button("Run Model", type="primary"):
         'df_asset_costs': df_asset_costs,  # <--- LE NOUVEAU TABLEAU EST PASSÉ ICI
         'amenities_total_capex': amenities_capex
     }
-    }
     
     inputs_financing = {
         'debt_amount': i_debt, 'interest_rate': i_rate, 'loan_term': i_term, 
@@ -242,6 +241,7 @@ if st.button("Run Model", type="primary"):
     st.dataframe(cf.df.style.format("{:,.0f}"), use_container_width=True)
     
     st.bar_chart(cf.df[['NOI', 'Debt Service', 'Net Cash Flow']])
+
 
 
 
