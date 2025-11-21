@@ -1,907 +1,451 @@
-
-# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import numpy_financial as npf
 
-# ----------------------------------------------------------------------
-# 1. DEFAULT PARAMETERS (from logique_bp_immo.txt)
-# ----------------------------------------------------------------------
+# --- PAGE CONFIGURATION ---
+st.set_page_config(
+    page_title="Real Estate Business Plan Modeler",
+    page_icon="🏢",
+    layout="wide"
+)
 
+# --- CUSTOM CSS FOR STYLING ---
+st.markdown("""
+    <style>
+    .main-header {font-size: 2rem; font-weight: bold; color: #1E3A8A;}
+    .sub-header {font-size: 1.5rem; font-weight: bold; color: #3B82F6;}
+    .kpi-card {background-color: #f0f2f6; padding: 20px; border-radius: 10px; text-align: center;}
+    </style>
+""", unsafe_allow_html=True)
 
-def get_default_params():
+# --- 1. CALCULATION FUNCTIONS (THE ENGINE) ---
+
+def calculate_loan_schedule(principal, annual_rate, duration_years, grace_period_years):
     """
-    All global parameters reconstructed from the Excel logic.
-    Values are the defaults you had in the BP.
+    Generates a loan amortization schedule matching the 'Amortization' sheet logic:
+    - Interest Only during grace period.
+    - Constant annuities (Principal + Interest) afterwards.
     """
-    params = {
-        "general": {
-            "corp_tax_rate": 30.0 / 100.0,  # General!B12
-            "tax_holiday_years": 3,         # General!B13
-            "discount_rate": 10.0 / 100.0,  # General!B14
-            # Building efficiency is logically in General but used by Construction
-            "building_efficiency_pct": 80.0,  # General!B8
-        },
-        "operation": {
-            "default_occupancy": 90.0 / 100.0,     # Operation!B4
-            "opex_per_m2_year": 28.0,             # Operation!B5
-            "pm_pct_of_revenue": 4.5 / 100.0,     # Operation!B6
-            "inflation": 4.0 / 100.0,             # Operation!B7 (used for opex / selling price)
-            "rent_growth": 2.5 / 100.0,           # Operation!B8
-            # global default if Asset Value Growth left blank
-            "value_growth": 4.0 / 100.0,          # use same as Exit NOI growth (Operation!B8) as reasonable default
-        },
-        "exit": {
-            "holding_period": 20,            # Exit!B4
-            "exit_yield": 8.25 / 100.0,      # Exit!B5
-            "transaction_fees_pct": 5.0 / 100.0,  # Exit!B6
-            # Exit corporate tax on sale (not explicitly used in CF row but kept)
-            "exit_corp_tax_rate": 3.0 / 100.0,    # Exit!B10
-        },
-        "construction": {
-            "structure_cost_per_m2": 800.0,       # Construction!B4
-            "finishing_cost_per_m2": 400.0,       # Construction!B5
-            "utilities_cost_per_m2": 200.0,       # Construction!B6
-            "permit_fees_fixed": 20000.0,         # Construction!B7
-            "architect_fees_pct_hard": 3.0,       # Construction!B8
-            "development_fees_pct_hard": 2.0,     # Construction!B9
-            "marketing_fees_pct_hard": 1.0,       # Construction!B10
-            "contingency_pct_subtotal": 5.0,      # Construction!B11
-            "duration_months": 24,                # Construction!B12
-            "s_curve": [40.0, 40.0, 20.0],        # Construction!B13:B15
-        },
-        "financing": {
-            "debt_amount": 14504578.56,           # Financing!B5
-            "interest_rate": 4.5 / 100.0,         # Financing!B6
-            "loan_term_years": 20,                # Financing!B7
-            "grace_period_months": 24,            # Financing!B8
-            "arrangement_fees_pct": 1.0 / 100.0,  # Financing!B9
-            "upfront_fees": 150000.0,             # Financing!B10
-            "prepayment_fee_pct": 2.0 / 100.0,    # Financing!B16
-        },
-        "amenities": {
-            "amenities_capex": 0.0,               # Construction!B49 (Padel etc. – simplified)
-            "amenities_net_annual_impact": -3000.0,  # Construction!B50 (Padel OPEX=3000)
-        },
-    }
-    return params
+    schedule = []
+    monthly_rate = annual_rate / 12
+    total_months = int(duration_years * 12)
+    grace_months = int(grace_period_years * 12)
+    
+    remaining_balance = principal
+    
+    # Calculate monthly payment (PMT) for the post-grace period
+    amortization_months = total_months - grace_months
+    if amortization_months > 0 and principal > 0 and monthly_rate > 0:
+        monthly_payment = principal * (monthly_rate * (1 + monthly_rate)**amortization_months) / ((1 + monthly_rate)**amortization_months - 1)
+    elif amortization_months > 0 and principal > 0:
+        monthly_payment = principal / amortization_months
+    else:
+        monthly_payment = 0
 
-
-# ----------------------------------------------------------------------
-# 2. DEFAULT UNITS TABLE (from Units sheet – simplified subset)
-# ----------------------------------------------------------------------
-
-
-def get_default_units_df():
-    """
-    Rebuilds a minimal but realistic Units table from logique_bp_immo.txt.
-    The user can extend / edit freely via st.data_editor.
-    """
-    data = [
-        # Offices
-        {
-            "Code": "OF-L",
-            "AssetClass": "office",
-            "Mode": "rent",
-            "Surface (GLA m²)": 3000.0,
-            "Rent €/m²/mo": 20.0,
-            "Price €/m²": 0.0,
-            "Occ %": 90.0,
-            "Start Year": 3,
-            "Sale Year": "",
-            "Rent growth %": 5.0,
-            "Asset Value Growth (%/yr)": 4.5,
-            "Phase": "P1",
-            "Notes": "Large Office floorplates",
-            "Parking per unit": np.nan,
-            "Parking ratio (per 100 m²)": 2.5,
-            "UNIT TYPE": "Bureaux",
-        },
-        {
-            "Code": "OF-M",
-            "AssetClass": "office",
-            "Mode": "rent",
-            "Surface (GLA m²)": 3000.0,
-            "Rent €/m²/mo": 20.0,
-            "Price €/m²": 0.0,
-            "Occ %": 90.0,
-            "Start Year": 3,
-            "Sale Year": "",
-            "Rent growth %": 5.0,
-            "Asset Value Growth (%/yr)": 4.5,
-            "Phase": "P1",
-            "Notes": "Medium Office floorplates",
-            "Parking per unit": np.nan,
-            "Parking ratio (per 100 m²)": 2.5,
-            "UNIT TYPE": "Bureaux",
-        },
-        {
-            "Code": "OF-S",
-            "AssetClass": "office",
-            "Mode": "rent",
-            "Surface (GLA m²)": 2640.0,
-            "Rent €/m²/mo": 20.0,
-            "Price €/m²": 0.0,
-            "Occ %": 90.0,
-            "Start Year": 3,
-            "Sale Year": "",
-            "Rent growth %": 5.0,
-            "Asset Value Growth (%/yr)": 4.5,
-            "Phase": "P1",
-            "Notes": "Small Office floorplates",
-            "Parking per unit": np.nan,
-            "Parking ratio (per 100 m²)": 2.5,
-            "UNIT TYPE": "Bureaux",
-        },
-        # Example residential T3 VPAT (just to have resi in the model)
-        {
-            "Code": "T3-VPAT",
-            "AssetClass": "residential",
-            "Mode": "rent",
-            "Surface (GLA m²)": 110.0,
-            "Rent €/m²/mo": 16.0,
-            "Price €/m²": 2300.0,
-            "Occ %": 95.0,
-            "Start Year": 3,
-            "Sale Year": "",
-            "Rent growth %": 4.0,
-            "Asset Value Growth (%/yr)": 4.0,
-            "Phase": "P1",
-            "Notes": "T3 VPAT",
-            "Parking per unit": 2.0,
-            "Parking ratio (per 100 m²)": np.nan,
-            "UNIT TYPE": "T3",
-        },
-        # Example residential T3 VEFA – sold in year 5
-        {
-            "Code": "T3-VEFA",
-            "AssetClass": "residential",
-            "Mode": "sell",
-            "Surface (GLA m²)": 110.0,
-            "Rent €/m²/mo": 0.0,
-            "Price €/m²": 2300.0,
-            "Occ %": 0.0,
-            "Start Year": 0,
-            "Sale Year": 5,
-            "Rent growth %": 0.0,
-            "Asset Value Growth (%/yr)": 4.0,
-            "Phase": "P1",
-            "Notes": "T3 VEFA sold in year 5",
-            "Parking per unit": 2.0,
-            "Parking ratio (per 100 m²)": np.nan,
-            "UNIT TYPE": "T3",
-        },
-    ]
-
-    df = pd.DataFrame(data)
-    return df
-
-
-# ----------------------------------------------------------------------
-# 3. LOAN SCHEDULE (Amortization sheet – simplified but faithful)
-# ----------------------------------------------------------------------
-
-
-def calculate_loan_schedule(debt_amount, annual_rate, term_years, grace_years, max_year):
-    """
-    Reproduces the core logic of the Amortization sheet:
-
-    - Constant amortizing payment after grace period
-    - Interest-only during grace (no principal)
-    - Schedule built for full term, then truncated to project horizon.
-    - Returns a DataFrame indexed by "Year" with:
-      Opening, Payment, Interest, Principal, Closing
-    """
-
-    years = np.arange(1, term_years + 1)
-
-    # Payment only on amortizing period (term_years - grace_years)
-    effective_amort_years = max(term_years - grace_years, 1)
-    annuity_payment = float(npf.pmt(annual_rate, effective_amort_years, -debt_amount))
-
-    opening = []
-    payment = []
-    interest = []
-    principal = []
-    closing = []
-
-    outstanding = debt_amount
-
-    for y in years:
-        if outstanding <= 1e-8:
-            # Loan fully repaid
-            opening.append(0.0)
-            payment.append(0.0)
-            interest.append(0.0)
-            principal.append(0.0)
-            closing.append(0.0)
-            continue
-
-        opening.append(outstanding)
-        if y <= grace_years:
-            # Interest-only period
-            int_y = outstanding * annual_rate
-            pay_y = int_y
-            princ_y = 0.0
+    # Generate yearly aggregation
+    # We simulate month by month to be precise, then aggregate by year
+    
+    current_balance = principal
+    
+    yearly_data = {}
+    
+    for m in range(1, total_months + 1):
+        year = (m - 1) // 12 + 1
+        
+        if year not in yearly_data:
+            yearly_data[year] = {'interest': 0, 'principal': 0, 'payment': 0, 'balance_start': current_balance}
+        
+        # Interest Calculation
+        interest = current_balance * monthly_rate
+        
+        # Principal Calculation
+        if m <= grace_months:
+            principal_pay = 0
+            payment = interest
         else:
-            pay_y = annuity_payment
-            int_y = outstanding * annual_rate
-            princ_y = max(pay_y - int_y, 0.0)
-            # avoid tiny numeric noise
-            if princ_y > outstanding:
-                princ_y = outstanding
-                pay_y = int_y + princ_y
+            payment = monthly_payment
+            principal_pay = payment - interest
+            
+        # Update Balance
+        current_balance -= principal_pay
+        if current_balance < 0: current_balance = 0 # Avoid floating point errors
+        
+        # Aggregate
+        yearly_data[year]['interest'] += interest
+        yearly_data[year]['principal'] += principal_pay
+        yearly_data[year]['payment'] += payment
+        yearly_data[year]['balance_end'] = current_balance
 
-        new_outstanding = max(outstanding - princ_y, 0.0)
+    return yearly_data
 
-        payment.append(pay_y)
-        interest.append(int_y)
-        principal.append(princ_y)
-        closing.append(new_outstanding)
-        outstanding = new_outstanding
-
-    sched = pd.DataFrame(
-        {
-            "Year": years,
-            "Opening": opening,
-            "Payment": payment,
-            "Interest": interest,
-            "Principal": principal,
-            "Closing": closing,
-        }
-    ).set_index("Year")
-
-    # For consistency with Cashflow: add Year 0 with zeros, Opening=0, Closing=debt_amount
-    sched0 = pd.DataFrame(
-        {
-            "Opening": [0.0],
-            "Payment": [0.0],
-            "Interest": [0.0],
-            "Principal": [0.0],
-            "Closing": [debt_amount],
-        },
-        index=pd.Index([0], name="Year"),
-    )
-    sched = pd.concat([sched0, sched])
-
-    # Truncate to project horizon (max_year) if needed
-    sched = sched.loc[sched.index <= max_year]
-    return sched
-
-
-# ----------------------------------------------------------------------
-# 4. MAIN CALCULATION ENGINE (Cashflow sheet reconstruction)
-# ----------------------------------------------------------------------
-
-
-def calculate_flows(df_units_raw, params):
+def calculate_model(params, df_units):
     """
-    Core engine reproducing the logic of:
-    - RentSchedule
-    - SaleSchedule
-    - Construction & CAPEX_Summary
-    - Amortization
-    - Cashflow
-    Returns:
-    - cashflow_df (DataFrame)
-    - kpis (dict)
+    Core engine that reconstructs the Cashflow, RentSchedule, and SaleSchedule sheets.
     """
-
-    # -----------------------------
-    # Unpack params
-    # -----------------------------
-    general = params["general"]
-    op = params["operation"]
-    exit_p = params["exit"]
-    cons = params["construction"]
-    fin = params["financing"]
-    amenities = params["amenities"]
-
-    holding_period = int(exit_p["holding_period"])
-    years = np.arange(0, holding_period + 1)
-
-    # -----------------------------------
-    # Clean / normalize Units DataFrame
-    # -----------------------------------
-    df_units = df_units_raw.copy()
-
-    # Ensure required columns exist
-    required_cols = [
-        "Code",
-        "AssetClass",
-        "Mode",
-        "Surface (GLA m²)",
-        "Rent €/m²/mo",
-        "Price €/m²",
-        "Occ %",
-        "Start Year",
-        "Sale Year",
-        "Rent growth %",
-        "Asset Value Growth (%/yr)",
-        "Phase",
-        "Notes",
-        "Parking per unit",
-        "Parking ratio (per 100 m²)",
-        "UNIT TYPE",
-    ]
-    for c in required_cols:
-        if c not in df_units.columns:
-            df_units[c] = np.nan
-
-    # Fill defaults
-    df_units["Occ %"] = df_units["Occ %"].fillna(op["default_occupancy"] * 100.0)
-    df_units["Rent growth %"] = df_units["Rent growth %"].fillna(op["rent_growth"] * 100.0)
-    df_units["Asset Value Growth (%/yr)"] = df_units["Asset Value Growth (%/yr)"].fillna(
-        op["value_growth"] * 100.0
-    )
-
-    # Convert numeric columns safely
-    num_cols = [
-        "Surface (GLA m²)",
-        "Rent €/m²/mo",
-        "Price €/m²",
-        "Occ %",
-        "Start Year",
-        "Sale Year",
-        "Rent growth %",
-        "Asset Value Growth (%/yr)",
-    ]
-    for c in num_cols:
-        df_units[c] = pd.to_numeric(df_units[c], errors="coerce")
-
-    # -----------------------------
-    # RentSchedule equivalent
-    # -----------------------------
-    rental_income = np.zeros_like(years, dtype=float)
-    m2_rented = np.zeros_like(years, dtype=float)
-
-    for _, row in df_units.iterrows():
-        asset_class = str(row["AssetClass"]).strip().lower()
-        mode = str(row["Mode"]).strip().lower()
-
-        gla = float(row["Surface (GLA m²)"]) if not np.isnan(row["Surface (GLA m²)"]) else 0.0
-        rent_m2 = float(row["Rent €/m²/mo"]) if not np.isnan(row["Rent €/m²/mo"]) else 0.0
-        occ = float(row["Occ %"]) / 100.0 if not np.isnan(row["Occ %"]) else op["default_occupancy"]
-        start_year = int(row["Start Year"]) if not np.isnan(row["Start Year"]) else None
-        sale_year_raw = row["Sale Year"]
-        rent_growth = (
-            float(row["Rent growth %"]) / 100.0 if not np.isnan(row["Rent growth %"]) else op["rent_growth"]
-        )
-
-        # Units with no rent don't contribute to rental income
-        if gla <= 0 or rent_m2 <= 0:
-            continue
-
-        for iy, y in enumerate(years):
-            # Start condition
-            if start_year is None or y < start_year:
-                continue
-
-            # Sale condition (only apply to units with a numeric sale year)
-            stop = False
-            if not pd.isna(sale_year_raw):
-                sale_year = int(sale_year_raw)
-                # If sold in year = sale_year, we do NOT collect rent on that year anymore
-                if y >= sale_year:
-                    stop = True
-            # If "Sale Year" is text (e.g. "Exit"), treat as not sold by unit schedule (sold via Exit sheet)
-            # -> in that case, we never stop
-            if stop:
-                continue
-
-            # Only rented if Mode is not "sell"
-            if mode == "sell":
-                continue
-
-            year_index = int(y)  # matches exponent in RentSchedule!K$2 etc.
-            annual_rent = gla * rent_m2 * 12.0 * occ * (1.0 + rent_growth) ** year_index
-            rental_income[iy] += annual_rent
-            # M² rented used for OPEX
-            m2_rented[iy] += gla * occ
-
-    # -----------------------------
-    # SaleSchedule equivalent
-    # -----------------------------
-    sales_income = np.zeros_like(years, dtype=float)
-
-    for _, row in df_units.iterrows():
-        asset_class = str(row["AssetClass"]).strip().lower()
-        gla = float(row["Surface (GLA m²)"]) if not np.isnan(row["Surface (GLA m²)"]) else 0.0
-        price_m2 = float(row["Price €/m²"]) if not np.isnan(row["Price €/m²"]) else 0.0
-        val_growth = (
-            float(row["Asset Value Growth (%/yr)"]) / 100.0
-            if not np.isnan(row["Asset Value Growth (%/yr)"])
-            else op["value_growth"]
-        )
-
-        # Ignore units with no sale value
-        if gla <= 0 or price_m2 <= 0:
-            continue
-
-        sale_year_raw = row["Sale Year"]
-
-        # If sale year is text "Exit" or blank -> handled via Exit sheet logic (NOI * yield)
-        if isinstance(sale_year_raw, str) and sale_year_raw.strip().lower() == "exit":
-            continue
-
-        if pd.isna(sale_year_raw):
-            continue
-
-        sale_year = int(sale_year_raw)
-        if sale_year < 0 or sale_year > holding_period:
-            continue
-
-        year_index = sale_year
-        sale_val = gla * price_m2 * (1.0 + val_growth) ** year_index
-        sales_income[years == sale_year] += sale_val
-
-    # -----------------------------
-    # Construction & CAPEX Summary
-    # -----------------------------
-    # GFA from units: Construction!D18 = SUM(Units!E)*(1+(100-B8)/100)
-    building_eff_pct = general["building_efficiency_pct"] / 100.0  # e.g. 0.80
-    total_gla = df_units["Surface (GLA m²)"].fillna(0.0).sum()
-    gfa_multiplier = 1.0 + (1.0 - building_eff_pct)  # (1 + (100-80)/100) = 1.2 for 80%
-    gfa = total_gla * gfa_multiplier
-
-    # Hard cost per m²: B4 + B5 + B6
-    hard_cost_per_m2 = (
-        cons["structure_cost_per_m2"] + cons["finishing_cost_per_m2"] + cons["utilities_cost_per_m2"]
-    )
-    hard_costs_total = gfa * hard_cost_per_m2
-
-    # Soft fees = (B8+B9+B10)% of hard cost
-    soft_fees_pct_total = (
-        cons["architect_fees_pct_hard"]
-        + cons["development_fees_pct_hard"]
-        + cons["marketing_fees_pct_hard"]
-    ) / 100.0
-    soft_fees_total = soft_fees_pct_total * hard_costs_total
-
-    # Subtotal before contingency = hard + soft + permit
-    subtotal_before_contingency = hard_costs_total + soft_fees_total + cons["permit_fees_fixed"]
-
+    years = range(0, int(params['holding_period']) + 2) # +2 to calculate n+1 for exit
+    cols = [f"Y{y}" for y in years]
+    
+    # --- A. CONSTRUCTION CAPEX (S-Curve) ---
+    # Rebuilding logic from 'Construction' sheet
+    land_cost = params['land_area'] * params['land_price_per_m2'] if 'land_price_per_m2' in params else 0 # Assuming land is already owned or part of GFA inputs
+    # Note: In the text file, Land Area is in General, but cost isn't explicit. We assume Land is an initial outflow or part of total investment.
+    # Let's calculate Construction Costs based on GFA
+    gfa = params['land_area'] * params['far']
+    gla = gfa * (params['building_efficiency'] / 100)
+    
+    # Hard Costs
+    hard_costs_total = gfa * (params['cost_structure'] + params['cost_finishing'] + params['cost_utilities'])
+    
+    # Soft Fees (Permits + % based fees)
+    soft_fees_pct = (params['fee_architect'] + params['fee_development'] + params['fee_marketing']) / 100
+    soft_costs_total = params['fee_permits'] + (hard_costs_total * soft_fees_pct)
+    
     # Contingency
-    contingency = cons["contingency_pct_subtotal"] / 100.0 * subtotal_before_contingency
-
-    # Total pre-financing cost (Construction D25)
-    total_pre_financing = subtotal_before_contingency + contingency
-
-    # Add Parking & Amenities CAPEX (Construction D39 = D25 + D38 + B49)
-    total_pre_financing += amenities["amenities_capex"]
-
-    # Upfront fees total (Financing D13 = B10 + (B9/100)*B5)
-    upfront_fees_total = fin["upfront_fees"] + fin["arrangement_fees_pct"] * fin["debt_amount"]
-
-    # CAPEX_Summary B6 = pre-financing incl. parking & amenities + upfront fees
-    total_capex = total_pre_financing + upfront_fees_total
-
-    # -----------------------------
-    # INVESTMENTS (CAPEX) by S-curve – Cashflow!C21:E21
-    # -----------------------------
-    investments = np.zeros_like(years, dtype=float)
-    s_curve = cons["s_curve"]  # [Y1, Y2, Y3] in %
-    for i, pct in enumerate(s_curve, start=1):
-        if i <= holding_period:
-            investments[years == i] = total_capex * (pct / 100.0)
-
-    # -----------------------------
-    # Debt drawdowns – Cashflow!B27:V27
-    # B27 = IF(B21=0,0,B21*(Financing!B5/CAPEX_Summary!B6))
-    # -----------------------------
-    debt_amount = fin["debt_amount"]
-    if total_capex > 0:
-        debt_ratio = debt_amount / total_capex
-    else:
-        debt_ratio = 0.0
-    debt_drawdowns = investments * debt_ratio
-
-    # -----------------------------
-    # OPEX + Property management – Cashflow rows 12-14
-    # -----------------------------
-    pm_cost = op["pm_pct_of_revenue"] * rental_income  # property management only on rental income
-
-    # Operating expenses excl PM = op.B5 * RentSchedule!M² rented
-    # (here we ignore additional inflation term for simplicity, or we can add it)
-    # In original: no explicit inflation applied in formula snippet; yearly opex/m² is already "today €".
-    opex_excl_pm = op["opex_per_m2_year"] * m2_rented
-
-    opex_total = pm_cost + opex_excl_pm
-
-    # -----------------------------
-    # NOI – Cashflow!row 16
-    # -----------------------------
-    total_revenues = rental_income + sales_income
-    noi = total_revenues - opex_total
-
-    # -----------------------------
-    # Corporate tax & Tax holiday – Cashflow!rows 18-19
-    # -----------------------------
-    corp_tax = noi * general["corp_tax_rate"]
-
-    tax_after_holiday = np.zeros_like(years, dtype=float)
-    tax_holiday = int(general["tax_holiday_years"])
-    for i, y in enumerate(years):
-        if y <= tax_holiday:
-            tax_after_holiday[i] = 0.0
+    subtotal_capex = hard_costs_total + soft_costs_total
+    contingency_amount = subtotal_capex * (params['contingency'] / 100)
+    
+    total_capex = subtotal_capex + contingency_amount
+    
+    # S-Curve Distribution (Y1, Y2, Y3)
+    capex_flow = {y: 0.0 for y in years}
+    capex_flow[1] = total_capex * (params['s_curve_y1'] / 100)
+    capex_flow[2] = total_capex * (params['s_curve_y2'] / 100)
+    capex_flow[3] = total_capex * (params['s_curve_y3'] / 100)
+    
+    # --- B. RENT & SALE SCHEDULES (Units Sheet) ---
+    rent_flow = {y: 0.0 for y in years}
+    sale_flow = {y: 0.0 for y in years}
+    
+    # Iterate over units
+    for _, unit in df_units.iterrows():
+        surface = unit['Surface (m²)']
+        base_rent = unit['Rent (€/m²/mo)'] * 12 # Annualized
+        base_price = unit['Price (€/m²)']
+        start_year = int(unit['Start Year']) if pd.notna(unit['Start Year']) else 999
+        sale_year_input = unit['Sale Year']
+        
+        # Determine Sale Year
+        if str(sale_year_input).lower() == 'exit':
+            unit_sale_year = int(params['holding_period'])
+        elif pd.notna(sale_year_input):
+            unit_sale_year = int(sale_year_input)
         else:
-            tax_after_holiday[i] = corp_tax[i]
+            unit_sale_year = 999 # Never sold
+            
+        growth_rate = (params['rent_growth'] / 100) # Could be unit specific, here using global for simplicity override
+        price_growth_rate = (params['inflation'] / 100)
+        
+        for y in years:
+            if y == 0: continue
+            
+            # RENT CALCULATION
+            if start_year <= y <= unit_sale_year:
+                # Indexation formula: Base * (1+g)^(y - start)
+                # Note: Usually indexation starts from Y1. Let's assume Base is Y1 value.
+                current_rent = surface * base_rent * ((1 + growth_rate)**(y - start_year))
+                # Apply Vacancy/Occupancy from global params
+                occupancy = params['occupancy_rate'] / 100
+                # If sold this year, maybe partial rent? Keeping simple: Rent collected if sold at end of year.
+                if unit['Mode'] == 'Rent' or unit['Mode'] == 'Mixed':
+                    rent_flow[y] += current_rent * occupancy
+            
+            # SALE CALCULATION (Unit by Unit sales)
+            if y == unit_sale_year and unit['Mode'] != 'Rent': # Sale or Mixed
+                sale_value = surface * base_price * ((1 + price_growth_rate)**(y - start_year)) # Growing price
+                sale_flow[y] += sale_value
 
-    # -----------------------------
-    # Exit Net Value – Exit sheet + Cashflow row 8
-    # Exit!B15 = NOI at Exit (Year n) = NOIy(exit_year) ignoring PM subtleties
-    # Exit!B16 = NOI at Exit (n+1) = B15*(1+Rent growth)
-    # Exit!B17 = Gross Exit Value = B16 / ExitYield
-    # Exit!B18 = Net Exit Value = B17*(1-TransactionFees)
-    # Cashflow!B8:V8 = IF(Year=HoldingPeriod,Exit!B18,0)
-    # -----------------------------
-    exit_year = holding_period
-    if exit_year <= holding_period:
-        noi_at_exit = noi[years == exit_year][0]
-    else:
-        noi_at_exit = 0.0
+    # --- C. EXIT VALUATION (Terminal Value) ---
+    # Calculate NOI for Year N+1 to determine Exit Value
+    exit_year = int(params['holding_period'])
+    
+    # Re-calculate Total Rent in Year N+1 for Exit Valuation
+    rent_n_plus_1 = 0
+    for _, unit in df_units.iterrows():
+        surface = unit['Surface (m²)']
+        base_rent = unit['Rent (€/m²/mo)'] * 12
+        start_year = int(unit['Start Year']) if pd.notna(unit['Start Year']) else 999
+        # Assuming all remaining rental units are part of the exit sale
+        if unit['Mode'] in ['Rent', 'Mixed'] and (str(unit['Sale Year']).lower() == 'exit' or pd.isna(unit['Sale Year'])):
+             current_rent = surface * base_rent * ((1 + (params['rent_growth']/100))**(exit_year + 1 - start_year))
+             rent_n_plus_1 += current_rent * (params['occupancy_rate'] / 100)
 
-    noi_at_exit_next = noi_at_exit * (1.0 + op["rent_growth"])
-    if exit_p["exit_yield"] > 0:
-        gross_exit_value = noi_at_exit_next / exit_p["exit_yield"]
-    else:
-        gross_exit_value = 0.0
-    net_exit_value = gross_exit_value * (1.0 - exit_p["transaction_fees_pct"])
+    opex_n_plus_1 = rent_n_plus_1 * (params['property_mgmt_fee']/100) + (gfa * params['opex_per_m2'] * ((1 + params['inflation']/100)**exit_year))
+    noi_n_plus_1 = rent_n_plus_1 - opex_n_plus_1
+    
+    gross_exit_value = noi_n_plus_1 / (params['exit_yield'] / 100) if params['exit_yield'] > 0 else 0
+    net_exit_value = gross_exit_value * (1 - params['transaction_fees_exit'] / 100)
+    
+    # Add Terminal Value to Sale Flow in Exit Year
+    if exit_year in sale_flow:
+        sale_flow[exit_year] += net_exit_value
 
-    exit_proceeds = np.zeros_like(years, dtype=float)
-    exit_proceeds[years == exit_year] = net_exit_value
-
-    # -----------------------------
-    # UNLEVERED OPERATING CF (After Tax) – Cashflow row 23
-    # B23 = NOI - TaxAfterHoliday - Investments + ExitProceeds
-    # -----------------------------
-    unlevered_cf = noi - tax_after_holiday - investments + exit_proceeds
-
-    # -----------------------------
-    # Loan schedule & Debt service – Amortization + Cashflow rows 28-30
-    # -----------------------------
-    grace_years = int(round(fin["grace_period_months"] / 12.0))
-    loan_sched = calculate_loan_schedule(
-        debt_amount=debt_amount,
-        annual_rate=fin["interest_rate"],
-        term_years=fin["loan_term_years"],
-        grace_years=grace_years,
-        max_year=holding_period,
+    # --- D. DEBT & AMORTIZATION ---
+    loan_schedule = calculate_loan_schedule(
+        params['debt_amount'], 
+        params['interest_rate']/100, 
+        params['loan_term'], 
+        params['grace_period']
     )
 
-    # Interest CF row 28 = -XLOOKUP(Year, Amortization!Interest)
-    interest_cf = np.zeros_like(years, dtype=float)
-    principal_cf = np.zeros_like(years, dtype=float)
-    bullet_cf = np.zeros_like(years, dtype=float)
-
-    for i, y in enumerate(years):
-        if y in loan_sched.index:
-            interest_cf[i] = -loan_sched.loc[y, "Interest"]
-            principal_cf[i] = -loan_sched.loc[y, "Principal"]
+    # --- E. CASHFLOW WATERFALL ---
+    cf_data = []
+    
+    cumulative_cf = 0
+    
+    for y in years:
+        if y == 0:
+            # Initial Investment Year
+            row = {
+                'Year': 0,
+                'Rental Income': 0,
+                'Sales Income': 0,
+                'OPEX': 0,
+                'NOI': 0,
+                'CAPEX': -params['land_cost_input'], # Assuming land bought at Y0
+                'Debt Drawdown': params['debt_amount'],
+                'Debt Service': 0,
+                'Upfront Fees': -(params['upfront_fees_amount'] + (params['debt_amount'] * params['arrangement_fee_pct']/100)),
+                'Tax': 0,
+                'Net Cash Flow': 0 # Calculated below
+            }
+            # Adjust CAPEX Y0 if needed, usually construction starts Y1
         else:
-            interest_cf[i] = 0.0
-            principal_cf[i] = 0.0
+            # Operating Phase
+            rental_income = rent_flow[y]
+            sales_income = sale_flow[y]
+            
+            # OPEX Calculation: Per m2 + % of Revenue
+            opex_fixed = gfa * params['opex_per_m2'] * ((1 + params['inflation']/100)**(y-1))
+            opex_var = rental_income * (params['property_mgmt_fee'] / 100)
+            total_opex = opex_fixed + opex_var
+            
+            noi = rental_income + sales_income - total_opex
+            
+            # Debt
+            debt_data = loan_schedule.get(y, {'payment': 0, 'interest': 0, 'principal': 0, 'balance_end': 0})
+            debt_service = debt_data['payment']
+            interest = debt_data['interest']
+            
+            # Bullet Repayment check
+            bullet = 0
+            prepayment_penality = 0
+            if y == exit_year:
+                remaining_principal = debt_data['balance_end']
+                bullet = remaining_principal
+                prepayment_penality = bullet * (params['prepayment_fee'] / 100)
+                # Add to debt service
+                debt_service += (bullet + prepayment_penality)
+            
+            # Tax Calculation
+            depreciation = 0 # Simplified, usually strictly defined in Accounting
+            # EBT (Earnings Before Tax)
+            ebt = noi - interest - depreciation # Simplified
+            
+            tax = 0
+            if ebt > 0:
+                # Tax Holiday Logic
+                if y > params['tax_holiday']:
+                    tax = ebt * (params['corporate_tax_rate'] / 100)
+            
+            row = {
+                'Year': y,
+                'Rental Income': rental_income,
+                'Sales Income': sales_income,
+                'OPEX': -total_opex,
+                'NOI': noi,
+                'CAPEX': -capex_flow[y],
+                'Debt Drawdown': 0,
+                'Debt Service': -debt_service,
+                'Upfront Fees': 0,
+                'Tax': -tax,
+            }
+            
+        # Net Cash Flow Calculation
+        net_cf = (row['Rental Income'] + row['Sales Income'] + row['OPEX'] + 
+                  row['CAPEX'] + row['Debt Drawdown'] + row['Debt Service'] + 
+                  row['Upfront Fees'] + row['Tax'])
+        
+        row['Net Cash Flow'] = net_cf
+        cf_data.append(row)
 
-    # Bullet repayment at Exit: principal + remaining closing balance in exit year
-    if exit_year in loan_sched.index:
-        closing_exit = loan_sched.loc[exit_year, "Closing"]
-        bullet_cf[years == exit_year] -= closing_exit  # negative cashflow at exit
-
-    # Prepayment fee row 30 = -Closing_at_exit * PrepaymentFee%
-    prepayment_fee_cf = np.zeros_like(years, dtype=float)
-    if exit_year in loan_sched.index:
-        closing_exit = loan_sched.loc[exit_year, "Closing"]
-        prepayment_fee_cf[years == exit_year] -= closing_exit * fin["prepayment_fee_pct"]
-
-    # -----------------------------
-    # LEVERED CF BEFORE EQUITY – Cashflow row 32
-    # B32 = B23+B27+B28+B29+B30
-    # -----------------------------
-    levered_cf_before_equity = (
-        unlevered_cf + debt_drawdowns + interest_cf + principal_cf + bullet_cf + prepayment_fee_cf
-    )
-
-    # -----------------------------
-    # Equity injection – Cashflow row 36
-    # Financing!B4 = CAPEX_Summary!B6 - Financing!B5
-    # -----------------------------
-    equity_amount = total_capex - debt_amount
-    equity_injection = np.zeros_like(years, dtype=float)
-    equity_injection[0] = -equity_amount  # negative (cash out)
-
-    # -----------------------------
-    # Equity cash flow – Cashflow row 38
-    # B38 = B32 + B36 (if not zero)
-    # -----------------------------
-    equity_cf = levered_cf_before_equity + equity_injection
-
-    # -----------------------------
-    # KPIs (Cashflow KPIs block)
-    # -----------------------------
-    # IRRs
-    def safe_irr(cf):
-        try:
-            if np.allclose(cf, 0.0):
-                return np.nan
-            return float(npf.irr(cf))
-        except Exception:
-            return np.nan
-
-    unlevered_irr = safe_irr(unlevered_cf)
-    levered_irr = safe_irr(equity_cf)
-
-    # Equity Multiple / Cash-on-Cash – Cashflow row 49
-    # Equity multiple = SUM(positive eq CF up to exit) / ABS(SUM(negative eq CF up to exit))
-    eq_cf_until_exit = equity_cf[(years >= 0) & (years <= exit_year)]
-    pos = eq_cf_until_exit[eq_cf_until_exit > 0].sum()
-    neg = eq_cf_until_exit[eq_cf_until_exit < 0].sum()
-    equity_multiple = pos / abs(neg) if neg < 0 else np.nan
-
-    # Net Margin – we approximate as (sum of unlevered CF over project) / total_capex
-    net_margin = unlevered_cf.sum() / total_capex if total_capex > 0 else np.nan
-
-    # NPV (unlevered)
-    discount_rate = general["discount_rate"]
-    npv_unlevered = float(npf.npv(discount_rate, unlevered_cf[1:]) + unlevered_cf[0])
+    df_cf = pd.DataFrame(cf_data).set_index('Year')
+    
+    # --- F. KPIs ---
+    flows = df_cf['Net Cash Flow'].values
+    try:
+        irr = npf.irr(flows)
+    except:
+        irr = 0.0
+        
+    equity_invested = -df_cf.loc[df_cf['Net Cash Flow'] < 0, 'Net Cash Flow'].sum()
+    total_returned = df_cf.loc[df_cf['Net Cash Flow'] > 0, 'Net Cash Flow'].sum()
+    
+    equity_multiple = total_returned / equity_invested if equity_invested > 0 else 0
+    
+    try:
+        npv = npf.npv(params['discount_rate']/100, flows)
+    except:
+        npv = 0
 
     kpis = {
-        "unlevered_irr": unlevered_irr,
-        "levered_irr": levered_irr,
-        "equity_multiple": equity_multiple,
-        "net_margin": net_margin,
-        "npv_unlevered": npv_unlevered,
-        "equity_amount": equity_amount,
-        "total_capex": total_capex,
-        "debt_amount": debt_amount,
+        'IRR': irr * 100,
+        'Equity Multiple': equity_multiple,
+        'NPV': npv,
+        'Total Equity Needed': equity_invested,
+        'Exit Value (Net)': net_exit_value
     }
+    
+    return df_cf, kpis, gfa, gla
 
-    # -----------------------------
-    # Build Cashflow DataFrame (for display)
-    # -----------------------------
-    cf_df = pd.DataFrame(
-        {
-            "Year": years,
-            "Rental Income": rental_income,
-            "Sales Income": sales_income,
-            "Exit Proceeds": exit_proceeds,
-            "Total Revenues": total_revenues,
-            "Property Management": pm_cost,
-            "Opex excl PM": opex_excl_pm,
-            "OPEX": opex_total,
-            "NOI": noi,
-            "Corporate Tax": corp_tax,
-            "Tax after Holiday": tax_after_holiday,
-            "Investments (CAPEX)": investments,
-            "Unlevered CF (after tax)": unlevered_cf,
-            "Debt Drawdowns": debt_drawdowns,
-            "Interest": interest_cf,
-            "Principal (scheduled)": principal_cf,
-            "Bullet Repayment": bullet_cf,
-            "Prepayment Fee": prepayment_fee_cf,
-            "Levered CF before Equity": levered_cf_before_equity,
-            "Equity Injection": equity_injection,
-            "Equity CF": equity_cf,
-        }
-    )
+# --- 2. SIDEBAR INPUTS ---
 
-    cf_df["Cumulative Unlevered CF"] = cf_df["Unlevered CF (after tax)"].cumsum()
-    cf_df["Cumulative Equity CF"] = cf_df["Equity CF"].cumsum()
+st.sidebar.title("🔧 Parameters")
 
-    return cf_df, kpis
+with st.sidebar.expander("General", expanded=True):
+    p_land_area = st.number_input("Land Area (m²)", value=7454)
+    p_land_cost = st.number_input("Land Acquisition Cost (€)", value=5000000, step=100000)
+    p_far = st.number_input("FAR (Floor Area Ratio)", value=3.45)
+    p_efficiency = st.number_input("Building Efficiency (%)", value=80.0)
+    p_tax_rate = st.number_input("Corporate Tax Rate (%)", value=30.0)
+    p_tax_holiday = st.number_input("Tax Holiday (Years)", value=3)
+    p_discount_rate = st.number_input("Discount Rate (%)", value=10.0)
 
+with st.sidebar.expander("Construction", expanded=False):
+    st.caption("Costs per m² of GFA")
+    p_c_structure = st.number_input("Structure (€/m²)", value=800)
+    p_c_finishing = st.number_input("Finishing (€/m²)", value=400)
+    p_c_utilities = st.number_input("Utilities/VRD (€/m²)", value=200)
+    st.markdown("---")
+    p_f_permits = st.number_input("Fixed Permit Fees (€)", value=20000)
+    p_f_arch = st.number_input("Architect Fees (% Hard)", value=3.0)
+    p_f_dev = st.number_input("Dev Fees (% Hard)", value=2.0)
+    p_f_mark = st.number_input("Marketing Fees (% Hard)", value=1.0)
+    p_contingency = st.number_input("Contingency (%)", value=5.0)
+    st.markdown("---")
+    st.caption("S-Curve Distribution")
+    col_s1, col_s2, col_s3 = st.columns(3)
+    p_s1 = col_s1.number_input("Y1 %", value=40.0)
+    p_s2 = col_s2.number_input("Y2 %", value=40.0)
+    p_s3 = col_s3.number_input("Y3 %", value=20.0)
 
-# ----------------------------------------------------------------------
-# 5. STREAMLIT UI
-# ----------------------------------------------------------------------
+with st.sidebar.expander("Financing", expanded=False):
+    p_debt_amount = st.number_input("Debt Amount (€)", value=14500000, step=100000, help="Manual override. Check Financing sheet logic.")
+    p_rate = st.number_input("Interest Rate (%)", value=4.5)
+    p_term = st.number_input("Loan Term (Years)", value=20)
+    p_grace = st.number_input("Grace Period (Years)", value=2)
+    p_fee_arr = st.number_input("Arrangement Fee (% Debt)", value=1.0)
+    p_fee_upfront = st.number_input("Upfront Fin. Fees (€)", value=150000)
+    p_fee_prepay = st.number_input("Prepayment Fee (%)", value=2.0)
 
+with st.sidebar.expander("Operation & Exit", expanded=False):
+    p_inflation = st.number_input("Inflation / Price Growth (%)", value=4.0)
+    p_rent_growth = st.number_input("Rent Growth (%)", value=2.5)
+    p_opex_m2 = st.number_input("OPEX (€/m²/yr)", value=28.0)
+    p_pm_fee = st.number_input("Property Mgmt Fee (% Rev)", value=4.5)
+    p_occupancy = st.number_input("Occupancy Rate (%)", value=90.0)
+    st.markdown("---")
+    p_hold_period = st.number_input("Holding Period (Years)", value=20)
+    p_exit_yield = st.number_input("Exit Yield (%)", value=8.25)
+    p_exit_fees = st.number_input("Exit Transac. Fees (%)", value=5.0)
 
-def main():
-    st.set_page_config(page_title="Real Estate BP Model", layout="wide")
+# Packing parameters
+params = {
+    'land_area': p_land_area, 'land_cost_input': p_land_cost, 'far': p_far, 'building_efficiency': p_efficiency,
+    'corporate_tax_rate': p_tax_rate, 'tax_holiday': p_tax_holiday, 'discount_rate': p_discount_rate,
+    'cost_structure': p_c_structure, 'cost_finishing': p_c_finishing, 'cost_utilities': p_c_utilities,
+    'fee_permits': p_f_permits, 'fee_architect': p_f_arch, 'fee_development': p_f_dev, 'fee_marketing': p_f_mark,
+    'contingency': p_contingency, 's_curve_y1': p_s1, 's_curve_y2': p_s2, 's_curve_y3': p_s3,
+    'debt_amount': p_debt_amount, 'interest_rate': p_rate, 'loan_term': p_term, 'grace_period': p_grace,
+    'arrangement_fee_pct': p_fee_arr, 'upfront_fees_amount': p_fee_upfront, 'prepayment_fee': p_fee_prepay,
+    'inflation': p_inflation, 'rent_growth': p_rent_growth, 'opex_per_m2': p_opex_m2, 'property_mgmt_fee': p_pm_fee,
+    'occupancy_rate': p_occupancy, 'holding_period': p_hold_period, 'exit_yield': p_exit_yield, 'transaction_fees_exit': p_exit_fees
+}
 
-    st.title("Real Estate BP – Streamlit Model (Dar es Salaam)")
+# --- 3. MAIN PAGE LAYOUT ---
 
-    # ------------------- SIDEBAR INPUTS -------------------
-    st.sidebar.header("Global Parameters")
+st.markdown('<div class="main-header">🏢 Real Estate AI Modeler</div>', unsafe_allow_html=True)
+st.markdown("Interactive reconstruction of the Business Plan logic.")
 
-    # Load / init params in session_state
-    if "params" not in st.session_state:
-        st.session_state["params"] = get_default_params()
-    params = st.session_state["params"]
+tab_units, tab_cashflow, tab_kpis = st.tabs(["🏙️ Units & Definition", "💰 Cashflow Table", "📊 KPIs & Charts"])
 
-    # GENERAL
-    st.sidebar.subheader("General")
-    general = params["general"]
-    general["corp_tax_rate"] = (
-        st.sidebar.number_input("Corporate Tax Rate (%)", 0.0, 100.0, general["corp_tax_rate"] * 100.0)
-        / 100.0
-    )
-    general["tax_holiday_years"] = st.sidebar.number_input(
-        "Tax Holiday (years)", 0, 50, int(general["tax_holiday_years"])
-    )
-    general["discount_rate"] = (
-        st.sidebar.number_input("Discount Rate (%/yr)", 0.0, 100.0, general["discount_rate"] * 100.0)
-        / 100.0
-    )
-    general["building_efficiency_pct"] = st.sidebar.number_input(
-        "Building efficiency (%)", 1.0, 100.0, float(general["building_efficiency_pct"])
-    )
+# --- TAB 1: UNITS ---
+with tab_units:
+    st.markdown('<div class="sub-header">Unit Definition</div>', unsafe_allow_html=True)
+    st.write("Define the asset mix here. Start Year indicates when rent collection begins. Sale Year = 'Exit' means sale at end of holding period.")
+    
+    # Default Data inspired by the TXT file
+    default_data = [
+        {"Type": "Office-L", "Mode": "Rent", "Surface (m²)": 3000, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit"},
+        {"Type": "Office-M", "Mode": "Rent", "Surface (m²)": 3000, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit"},
+        {"Type": "T2-Patrimonial", "Mode": "Mixed", "Surface (m²)": 70, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 4, "Sale Year": "Exit"},
+        {"Type": "T3-VEFA", "Mode": "Sale", "Surface (m²)": 110, "Rent (€/m²/mo)": 0, "Price (€/m²)": 2300, "Start Year": 1, "Sale Year": 1},
+        {"Type": "Retail-Grd", "Mode": "Rent", "Surface (m²)": 500, "Rent (€/m²/mo)": 35, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit"},
+    ]
+    
+    df_units_input = pd.DataFrame(default_data)
+    
+    column_config = {
+        "Type": st.column_config.TextColumn("Unit Type", width="medium"),
+        "Mode": st.column_config.SelectboxColumn("Mode", options=["Rent", "Sale", "Mixed"], width="small"),
+        "Surface (m²)": st.column_config.NumberColumn("Surface", min_value=0, format="%d m²"),
+        "Rent (€/m²/mo)": st.column_config.NumberColumn("Rent/m²", min_value=0, format="€%.2f"),
+        "Price (€/m²)": st.column_config.NumberColumn("Price/m²", min_value=0, format="€%d"),
+        "Start Year": st.column_config.NumberColumn("Start Yr", min_value=0, max_value=30),
+        # Sale Year is text to allow "Exit"
+    }
+    
+    df_units = st.data_editor(df_units_input, column_config=column_config, num_rows="dynamic", use_container_width=True)
+    
+    # Run Calculations
+    df_cf, kpis, gfa, gla = calculate_model(params, df_units)
+    
+    col_u1, col_u2, col_u3 = st.columns(3)
+    col_u1.metric("Total GFA (Constructed)", f"{gfa:,.0f} m²")
+    col_u2.metric("Total GLA (Leasable)", f"{gla:,.0f} m²")
+    col_u3.metric("Efficiency Check", f"{(gla/gfa)*100:.1f}%")
 
-    # CONSTRUCTION
-    st.sidebar.subheader("Construction")
-    cons = params["construction"]
-    cons["structure_cost_per_m2"] = st.sidebar.number_input(
-        "Structure cost (€/m²)", 0.0, 10000.0, cons["structure_cost_per_m2"]
-    )
-    cons["finishing_cost_per_m2"] = st.sidebar.number_input(
-        "Finishing cost (€/m²)", 0.0, 10000.0, cons["finishing_cost_per_m2"]
-    )
-    cons["utilities_cost_per_m2"] = st.sidebar.number_input(
-        "Utilities/VRD cost (€/m²)", 0.0, 10000.0, cons["utilities_cost_per_m2"]
-    )
-    cons["permit_fees_fixed"] = st.sidebar.number_input(
-        "Permit fees (fixed, €)", 0.0, 1e8, cons["permit_fees_fixed"]
-    )
-    cons["contingency_pct_subtotal"] = st.sidebar.number_input(
-        "Contingency (% of subtotal)", 0.0, 100.0, cons["contingency_pct_subtotal"]
-    )
-    cons["duration_months"] = st.sidebar.number_input(
-        "Construction duration (months)", 0, 120, cons["duration_months"]
-    )
-    col_sc1, col_sc2, col_sc3 = st.sidebar.columns(3)
-    cons["s_curve"][0] = col_sc1.number_input("S-curve Y1 (%)", 0.0, 100.0, cons["s_curve"][0])
-    cons["s_curve"][1] = col_sc2.number_input("S-curve Y2 (%)", 0.0, 100.0, cons["s_curve"][1])
-    cons["s_curve"][2] = col_sc3.number_input("S-curve Y3 (%)", 0.0, 100.0, cons["s_curve"][2])
+# --- TAB 2: CASHFLOW ---
+with tab_cashflow:
+    st.markdown('<div class="sub-header">Annual Cashflow Statement</div>', unsafe_allow_html=True)
+    
+    # Formatting for display
+    df_display = df_cf.copy()
+    format_cols = df_display.columns
+    
+    st.dataframe(df_display.style.format("{:,.0f}"), height=500, use_container_width=True)
+    
+    st.download_button("Download Excel", df_display.to_csv().encode('utf-8'), "bp_cashflow.csv", "text/csv")
 
-    # FINANCING
-    st.sidebar.subheader("Financing")
-    fin = params["financing"]
-    fin["debt_amount"] = st.sidebar.number_input(
-        "Debt amount (€)", 0.0, 1e9, fin["debt_amount"], step=100000.0
-    )
-    fin["interest_rate"] = (
-        st.sidebar.number_input("Interest rate (%/yr)", 0.0, 100.0, fin["interest_rate"] * 100.0)
-        / 100.0
-    )
-    fin["loan_term_years"] = st.sidebar.number_input(
-        "Loan term (years)", 1, 100, fin["loan_term_years"]
-    )
-    fin["grace_period_months"] = st.sidebar.number_input(
-        "Grace period (months)", 0, 120, fin["grace_period_months"]
-    )
-    fin["arrangement_fees_pct"] = (
-        st.sidebar.number_input("Arrangement fees (% of debt)", 0.0, 100.0, fin["arrangement_fees_pct"] * 100.0)
-        / 100.0
-    )
-    fin["upfront_fees"] = st.sidebar.number_input(
-        "Upfront financial fees (€)", 0.0, 1e8, fin["upfront_fees"]
-    )
-    fin["prepayment_fee_pct"] = (
-        st.sidebar.number_input("Prepayment fee (% of outstanding)", 0.0, 100.0, fin["prepayment_fee_pct"] * 100.0)
-        / 100.0
-    )
-
-    # EXIT
-    st.sidebar.subheader("Exit")
-    exit_p = params["exit"]
-    exit_p["holding_period"] = st.sidebar.number_input(
-        "Holding period (years)", 1, 100, exit_p["holding_period"]
-    )
-    exit_p["exit_yield"] = (
-        st.sidebar.number_input("Exit Yield (%)", 0.01, 100.0, exit_p["exit_yield"] * 100.0) / 100.0
-    )
-    exit_p["transaction_fees_pct"] = (
-        st.sidebar.number_input("Transaction fees on sale (%)", 0.0, 100.0, exit_p["transaction_fees_pct"] * 100.0)
-        / 100.0
-    )
-
-    # OPERATION
-    st.sidebar.subheader("Operations")
-    op = params["operation"]
-    op["default_occupancy"] = (
-        st.sidebar.number_input("Default occupancy (%)", 0.0, 100.0, op["default_occupancy"] * 100.0) / 100.0
-    )
-    op["opex_per_m2_year"] = st.sidebar.number_input(
-        "Operating expenses (€/m²/yr)", 0.0, 1000.0, op["opex_per_m2_year"]
-    )
-    op["pm_pct_of_revenue"] = (
-        st.sidebar.number_input("Property management (% of rental revenue)", 0.0, 100.0, op["pm_pct_of_revenue"] * 100.0)
-        / 100.0
-    )
-    op["inflation"] = (
-        st.sidebar.number_input("Inflation (%/yr)", 0.0, 100.0, op["inflation"] * 100.0) / 100.0
-    )
-    op["rent_growth"] = (
-        st.sidebar.number_input("Rent growth (%/yr)", 0.0, 100.0, op["rent_growth"] * 100.0) / 100.0
-    )
-    op["value_growth"] = (
-        st.sidebar.number_input("Asset value growth default (%/yr)", 0.0, 100.0, op["value_growth"] * 100.0) / 100.0
-    )
-
-    # Save back
-    st.session_state["params"] = params
-
-    # ------------------- MAIN LAYOUT -------------------
-    tab_units, tab_cashflow, tab_kpis = st.tabs(
-        ["Units (core input)", "Cashflow", "KPIs & Charts"]
-    )
-
-    # UNITS TAB
-    with tab_units:
-        st.subheader("Units — Granular listing (Residential / Office / etc.)")
-
-        if "df_units" not in st.session_state:
-            st.session_state["df_units"] = get_default_units_df()
-
-        df_units = st.session_state["df_units"]
-
-        edited_df = st.data_editor(
-            df_units,
-            use_container_width=True,
-            num_rows="dynamic",
-            key="units_editor",
-        )
-
-        # Update session state
-        st.session_state["df_units"] = edited_df
-
-        st.info(
-            "Modify unit surfaces, rents, sale years, etc. "
-            "Any change will update the entire cashflow once you switch tabs."
-        )
-
-    # CALCULATION (re-run every time because of Streamlit reactivity)
-    df_units_current = st.session_state["df_units"]
-    cf_df, kpis = calculate_flows(df_units_current, st.session_state["params"])
-
-    # CASHFLOW TAB
-    with tab_cashflow:
-        st.subheader("Cashflow Reconstruction (Annual)")
-
-        # Format some columns a bit
-        display_df = cf_df.copy()
-        money_cols = [c for c in display_df.columns if c != "Year"]
-        display_df[money_cols] = display_df[money_cols].round(0)
-
-        st.dataframe(display_df, use_container_width=True)
-
-    # KPIs & CHARTS TAB
-    with tab_kpis:
-        st.subheader("Key Performance Indicators")
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Unlevered IRR", f"{kpis['unlevered_irr']*100:.2f} %" if not np.isnan(kpis['unlevered_irr']) else "n/a")
-        col2.metric("Levered IRR", f"{kpis['levered_irr']*100:.2f} %" if not np.isnan(kpis['levered_irr']) else "n/a")
-        col3.metric("Equity Multiple (Cash-on-Cash)", f"{kpis['equity_multiple']:.2f}" if not np.isnan(kpis['equity_multiple']) else "n/a")
-
-        col4, col5, col6 = st.columns(3)
-        col4.metric("Net Margin (Unlevered CF / Total CAPEX)", f"{kpis['net_margin']*100:.2f} %" if not np.isnan(kpis['net_margin']) else "n/a")
-        col5.metric("Unlevered NPV", f"{kpis['npv_unlevered']:,.0f} €")
-        col6.metric("Equity Amount", f"{kpis['equity_amount']:,.0f} €")
-
-        st.markdown("---")
-        st.subheader("Cashflow Profile")
-
-        exit_year = int(st.session_state["params"]["exit"]["holding_period"])
-        cf_plot = cf_df[cf_df["Year"] <= exit_year].copy()
-
-        plot_df = pd.DataFrame(
-            {
-                "Year": cf_plot["Year"],
-                "Operating CF (Unlevered)": cf_plot["Unlevered CF (after tax)"],
-                "Debt Service (Interest+Principal+Fees)": cf_plot["Interest"]
-                + cf_plot["Principal (scheduled)"]
-                + cf_plot["Bullet Repayment"]
-                + cf_plot["Prepayment Fee"],
-                "Net CF to Equity": cf_plot["Equity CF"],
-            }
-        ).set_index("Year")
-
-        st.bar_chart(plot_df)
-
-
-if __name__ == "__main__":
-    main()
-
-
-
+# --- TAB 3: KPIs & CHARTS ---
+with tab_kpis:
+    st.markdown('<div class="sub-header">Financial Performance</div>', unsafe_allow_html=True)
+    
+    # Top Metrics
+    k1, k2, k3, k4 = st.columns(4)
+    
+    k1.markdown(f"""<div class="kpi-card"><h3>IRR (Levered)</h3><h2>{kpis['IRR']:.2f}%</h2></div>""", unsafe_allow_html=True)
+    k2.markdown(f"""<div class="kpi-card"><h3>Equity Multiple</h3><h2>{kpis['Equity Multiple']:.2f}x</h2></div>""", unsafe_allow_html=True)
+    k3.markdown(f"""<div class="kpi-card"><h3>NPV (@{p_discount_rate}%)</h3><h2>{kpis['NPV']/1e6:,.2f}M€</h2></div>""", unsafe_allow_html=True)
+    k4.markdown(f"""<div class="kpi-card"><h3>Peak Equity</h3><h2>{kpis['Total Equity Needed']/1e6:,.2f}M€</h2></div>""", unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Charts
+    c1, c2 = st.columns([2, 1])
+    
+    with c1:
+        st.subheader("Cash Flow Profile")
+        chart_data = df_cf[['NOI', 'Debt Service', 'Net Cash Flow']]
+        st.bar_chart(chart_data)
+        
+    with c2:
+        st.subheader("Sources & Uses (Approx)")
+        # Simple pie chart logic
+        debt = params['debt_amount']
+        equity = kpis['Total Equity Needed']
+        source_data = pd.DataFrame({
+            'Source': ['Debt', 'Equity'],
+            'Amount': [debt, equity]
+        }).set_index('Source')
+        st.dataframe(source_data.style.format("€{:,.0f}"))
