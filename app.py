@@ -116,6 +116,7 @@ with step3:
         "Rent (€/m²/mo)": st.column_config.NumberColumn(format="%.2f €"),
         "Occupancy %": st.column_config.NumberColumn(format="%d %%"),
         "Rent Growth %": st.column_config.NumberColumn(format="%.1f %%"),
+        "Sale Year": st.column_config.TextColumn(help="Année de vente ou 'Exit'"),
     }
     df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True, height=300, hide_index=True)
 
