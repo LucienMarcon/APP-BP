@@ -7,7 +7,9 @@ st.set_page_config(layout="wide", page_title="BP Immo - Zero Deviation")
 st.title("🏢 Real Estate Financial Model (Modular Architecture)")
 st.info("Strict replication of 'logique_bp_immo.txt' with Granular Units (Occupancy, Growth overrides).")
 
+# =============================================================================
 # 1. GENERAL CONFIGURATION
+# =============================================================================
 st.markdown("### 🌍 Configuration du Projet")
 with st.container(border=True):
     col_geo, col_urba, col_fin = st.columns(3)
@@ -38,7 +40,9 @@ with st.container(border=True):
         i_tax_holiday = c4.number_input("Exonération (Ans)", value=3)
         i_discount = st.number_input("Taux d'Actualisation (%)", value=10.0)
 
+# =============================================================================
 # 2. CONSTRUCTION & PARKING
+# =============================================================================
 st.markdown("### 🏗️ Construction & Capex")
 with st.container(border=True):
     tab_build, tab_amenities, tab_parking, tab_scurve = st.tabs(["🧱 Coûts Bâtiment", "🎾 Amenities", "🚗 Parking", "📈 Planning (S-Curve)"])
@@ -90,20 +94,57 @@ with st.container(border=True):
         remain = max(0, 100 - (i_s1 + i_s2))
         i_s3 = sc3.slider("Année 3 (%)", 0, 100, remain, disabled=True)
 
-# 3. PARAMETRES AVANCES
-with st.expander("🛠️ Paramètres Avancés (Dette, Exit...)", expanded=False):
-    col_p2, col_p3 = st.columns(2)
-    with col_p2:
-        i_debt = st.number_input("Dette Totale (€)", 14500000)
-        i_rate = st.number_input("Taux Intérêt (%)", 4.5)
-        i_term = st.number_input("Durée (Années)", 20)
-        i_grace = st.number_input("Franchise (Années)", 2)
-        i_upfront = st.number_input("Frais Dossier (€)", 150000)
-    with col_p3:
-        i_rent_growth = st.number_input("Croissance Loyer (Défaut %)", 2.5)
-        i_exit_yield = st.number_input("Taux de Sortie (%)", 8.25)
+# =============================================================================
+# 3. PARAMETRES FINANCIERS & OPERATIONNELS (FUSIONNÉS)
+# =============================================================================
+st.markdown("### ⚙️ Paramètres Financiers & Opérationnels")
+with st.container(border=True):
+    # On utilise des onglets pour séparer proprement les 3 feuilles Excel concernées
+    tab_fin, tab_op, tab_exit = st.tabs(["🏦 Financement (Dette)", "⚙️ Opérations (OPEX)", "🚀 Exit & Valorisation"])
 
+    # --- TAB 1 : FINANCING ---
+    with tab_fin:
+        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+        i_debt = col_f1.number_input("Dette Senior (€)", value=14504579, step=100000, help="Montant total de l'emprunt (Cell B5)")
+        i_rate = col_f2.number_input("Taux d'Intérêt (%)", value=4.5, step=0.1, format="%.2f", help="Taux annuel (Cell B6)")
+        i_term = col_f3.number_input("Durée Prêt (Années)", value=20, step=1, help="Loan term (Cell B7)")
+        # Excel en mois -> Conversion Python en années pour le calcul
+        i_grace_months = col_f4.number_input("Franchise (Mois)", value=24, step=6, help="Période Interest-Only (Cell B8)")
+        i_grace = i_grace_months / 12.0
+
+        st.divider()
+        st.caption("Frais Bancaires & Structuration")
+        fee1, fee2, fee3 = st.columns(3)
+        i_arr_fee_pct = fee1.number_input("Arrangement Fee (% Dette)", value=1.0, step=0.1, help="Cell B9")
+        i_upfront_flat = fee2.number_input("Frais Dossier Fixe (€)", value=150000, step=5000, help="Cell B10")
+        i_prepay_fee = fee3.number_input("Pénalité Remb. Anticipé (%)", value=2.0, step=0.5, help="Cell B16")
+
+        # Calcul "Live" pour l'ergonomie (Cell D13)
+        total_upfront = i_upfront_flat + (i_debt * i_arr_fee_pct / 100)
+        st.info(f"💰 Total Frais Upfront (Calculé) : **{total_upfront:,.0f} €** (déduits au T0)")
+
+    # --- TAB 2 : OPERATION ---
+    with tab_op:
+        col_o1, col_o2, col_o3 = st.columns(3)
+        i_occupancy_def = col_o1.slider("Taux d'Occupation Défaut (%)", 50, 100, 90, help="Utilisé si vide dans Units (Cell B4)")
+        i_opex_m2 = col_o2.number_input("OPEX (€/m²/an)", value=28.0, step=1.0, help="Operating expenses (Cell B5)")
+        i_pm_fee = col_o3.number_input("Gestion (PM) (% Revenus)", value=4.5, step=0.5, help="Property management fee (Cell B6)")
+
+        st.divider()
+        col_o4, col_o5 = st.columns(2)
+        i_inflation = col_o4.number_input("Inflation Générale (%/an)", value=4.0, step=0.1, help="Pour OPEX et Prix Vente (Cell B7)")
+        i_rent_growth_def = col_o5.number_input("Croissance Loyers Défaut (%/an)", value=2.5, step=0.1, help="Utilisé si vide dans Units (Cell B8)")
+
+    # --- TAB 3 : EXIT ---
+    with tab_exit:
+        col_e1, col_e2, col_e3 = st.columns(3)
+        i_hold_period = col_e1.number_input("Durée Détention (Années)", value=20, step=1, help="Holding period (Cell B4)")
+        i_exit_yield = col_e2.number_input("Taux de Sortie (Yield %)", value=8.25, step=0.25, help="Cap rate à la revente (Cell B5)")
+        i_transac_fees = col_e3.number_input("Frais Transaction Sortie (%)", value=5.0, step=0.5, help="Sur prix de vente brut (Cell B6)")
+
+# =============================================================================
 # 4. UNIT MIX (PRE-LOADED DATA)
+# =============================================================================
 st.subheader("Unit Mix & Parking Definition")
 
 units_data = []
@@ -141,10 +182,18 @@ col_conf = {
 
 df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True)
 
-# 5. EXECUTION
+# =============================================================================
+# 5. ORCHESTRATION & CALCUL
+# =============================================================================
 if st.button("Run Model", type="primary"):
-    # Inputs
-    inp_gen = {'land_area': i_land_area, 'parcels': i_parcels, 'construction_rate': i_const_rate, 'far': i_far, 'building_efficiency': i_efficiency, 'country': i_country, 'city': i_city, 'fx_eur_local': i_fx, 'corporate_tax_rate': i_tax_rate, 'tax_holiday': i_tax_holiday, 'discount_rate': i_discount}
+    
+    # A. COLLECT INPUTS
+    inp_gen = {
+        'land_area': i_land_area, 'parcels': i_parcels, 'construction_rate': i_const_rate, 
+        'far': i_far, 'building_efficiency': i_efficiency, 'country': i_country, 'city': i_city, 
+        'fx_eur_local': i_fx, 'corporate_tax_rate': i_tax_rate, 'tax_holiday': i_tax_holiday, 'discount_rate': i_discount
+    }
+    
     inp_park = {'cost_per_space': i_parking_cost}
     
     # 1. Parking Calculation First
@@ -155,13 +204,33 @@ if st.button("Run Model", type="primary"):
         'architect_fees_pct': i_arch, 'development_fees_pct': i_dev, 'marketing_fees_pct': 0, 'contingency_pct': i_contingency,
         's_curve_y1': i_s1, 's_curve_y2': i_s2, 's_curve_y3': i_s3, 'use_research_cost': use_research,
         'df_asset_costs': df_asset_costs, 'amenities_total_capex': amenities_capex,
-        'parking_capex': park.total_capex  # Link Parking Output -> Construction Input
+        'parking_capex': park.total_capex 
     }
     
-    inp_fin = {'debt_amount': i_debt, 'interest_rate': i_rate, 'loan_term': i_term, 'grace_period': i_grace, 'upfront_fees': i_upfront}
-    inp_op = {'rent_growth': i_rent_growth, 'exit_yield': i_exit_yield, 'holding_period': 20}
+    # MAPPING FINANCING INPUTS (Nouveaux champs ajoutés)
+    inp_fin = {
+        'debt_amount': i_debt, 
+        'interest_rate': i_rate, 
+        'loan_term': i_term, 
+        'grace_period': i_grace, 
+        'arrangement_fee_pct': i_arr_fee_pct,
+        'upfront_fees': i_upfront_flat,
+        'prepayment_fee_pct': i_prepay_fee
+    }
+    
+    # MAPPING OPERATION & EXIT INPUTS (Nouveaux champs ajoutés)
+    inp_op = {
+        'rent_growth': i_rent_growth_def, 
+        'exit_yield': i_exit_yield, 
+        'holding_period': i_hold_period,
+        'inflation': i_inflation,
+        'opex_per_m2': i_opex_m2,
+        'pm_fee_pct': i_pm_fee,
+        'occupancy_rate': i_occupancy_def,
+        'transac_fees_exit': i_transac_fees
+    }
 
-    # Run Chain
+    # B. RUN CLASSES
     try:
         gen = General(inp_gen)
         const = Construction(inp_const, gen, df_units)
@@ -171,7 +240,7 @@ if st.button("Run Model", type="primary"):
         sched = Scheduler(df_units, op, gen, fin)
         cf = CashflowEngine(gen, const, fin, op, amort, sched)
 
-        # Results
+        # C. DISPLAY RESULTS
         st.success(f"Calcul terminé avec succès ! Parking généré : {park.total_spaces:,.1f} places pour un coût de {park.total_capex:,.0f} €")
         
         k1, k2, k3, k4 = st.columns(4)
