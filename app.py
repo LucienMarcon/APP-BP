@@ -22,8 +22,8 @@ st.markdown("""
 c_logo, c_titre = st.columns([1, 6])
 with c_logo: st.write("# 🏢")
 with c_titre:
-    st.title("ImmoGenius 3.0")
-    st.caption("Plateforme de Modélisation Immobilière Intelligente")
+    st.title("ImmoGenius 3.0 - Final Audit")
+    st.caption("Modélisation Exacte 12/12 Feuilles - Zero Deviation")
 
 # --- WIZARD ---
 step1, step2, step3, step4 = st.tabs(["📍 1. Terrain", "🏗️ 2. Construction", "🏘️ 3. Unités", "💰 4. Finance & KPI"])
@@ -88,7 +88,7 @@ with step3:
     with col_top_p:
         i_parking_cost = st.number_input("Coût Parking (€)", 18754)
     
-    # DATA LOADING - COLONNES EXACTES SELON TXT
+    # DATA LOADING - COLONNES EXACTES SELON TXT UNITS
     units_data = []
     for t in ["OF-L", "OF-M", "OF-S"]:
         surf = 3000 if t != "OF-S" else 2640
@@ -107,8 +107,12 @@ with step3:
         "Mode": st.column_config.SelectboxColumn(options=["Rent", "Sale", "Mixed"]),
         "Price €/m²": st.column_config.NumberColumn(format="%d €"),
         "Rent (€/m²/mo)": st.column_config.NumberColumn(format="%.2f €"),
+        "Occ %": st.column_config.NumberColumn(format="%d %%"),
+        "Rent growth %": st.column_config.NumberColumn(format="%.1f %%"),
+        "Asset Value Growth (%/yr)": st.column_config.NumberColumn(format="%.1f %%"),
     }
-    df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True, height=300, hide_index=True)
+    # KEY CHANGEE POUR FORCER LE RESET DU CACHE
+    df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True, height=300, key="units_editor_final_v5")
 
 # 4. FINANCE & CAPEX SUMMARY
 with step4:
