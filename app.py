@@ -1,74 +1,65 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px # Using Plotly for sexy charts
 from financial_model import General, Construction, Financing, OperationExit, Amortization, Scheduler, CashflowEngine, Parking
 
-# --- CONFIGURATION DU SITE & STYLE ---
-st.set_page_config(layout="wide", page_title="ImmoGenius AI", page_icon="🏢")
+st.set_page_config(layout="wide", page_title="ImmoGenius", page_icon="🏢")
 
-# Custom CSS pour un look "App Moderne"
+# --- CUSTOM CSS FOR SEXY LOOK ---
 st.markdown("""
     <style>
-    .stApp {background-color: #f8fafc;}
-    .block-container {padding-top: 1rem; padding-bottom: 5rem;}
-    .stMetric {background-color: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);}
-    h1 {color: #1e293b; font-family: 'Helvetica Neue', sans-serif;}
-    h2, h3 {color: #334155;}
-    .stTabs [data-baseweb="tab-list"] {gap: 24px;}
-    .stTabs [data-baseweb="tab"] {height: 50px; white-space: pre-wrap; background-color: white; border-radius: 8px 8px 0 0; padding: 0 20px;}
-    .stTabs [aria-selected="true"] {background-color: #f1f5f9; border-bottom: 2px solid #3b82f6;}
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+    html, body, [class*="css"] {font-family: 'Inter', sans-serif;}
+    .stApp {background-color: #F8F9FA;}
+    .block-container {padding-top: 2rem;}
+    .stMetric {background: #FFFFFF; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-left: 5px solid #3B82F6;}
+    h1, h2, h3 {color: #1E293B;}
+    .stTabs [data-baseweb="tab-list"] {gap: 10px; background-color: transparent;}
+    .stTabs [data-baseweb="tab"] {background-color: #FFFFFF; border-radius: 8px; border: 1px solid #E2E8F0; padding: 10px 20px;}
+    .stTabs [aria-selected="true"] {background-color: #EFF6FF; border-color: #3B82F6; color: #3B82F6; font-weight: 600;}
     </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER HERO ---
-col_logo, col_title = st.columns([1, 5])
-with col_logo:
-    st.write("## 🏢")
-with col_title:
-    st.title("ImmoGenius Plan")
-    st.caption("Modélisation Financière Immobilière de Précision")
+# --- HEADER ---
+c_logo, c_titre = st.columns([1, 6])
+with c_logo: st.write("# 🏢")
+with c_titre:
+    st.title("ImmoGenius 2.0")
+    st.caption("Interactive Real Estate Modeling Studio")
 
-st.write("")
+# --- MAIN WIZARD ---
+step1, step2, step3, step4 = st.tabs(["📍 1. Terrain & Site", "🏗️ 2. Construction", "🏘️ 3. Unit Mix & Parking", "💰 4. Finance & Exit"])
 
-# =============================================================================
-# 1. WIZARD DE SAISIE (EN 4 ÉTAPES)
-# =============================================================================
-# On utilise des Expander ou des Tabs pour séquencer la saisie sans scroller à l'infini
-
-step1, step2, step3, step4 = st.tabs(["📍 1. Terrain & Gabarit", "🏗️ 2. Construction", "🏘️ 3. Unités & Parking", "💰 4. Finance & Exit"])
-
-# --- ETAPE 1 : TERRAIN ---
+# 1. TERRAIN
 with step1:
-    col_left, col_right = st.columns([1, 2])
-    with col_left:
-        st.markdown("#### Données Site")
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.markdown("### Données Site")
         i_city = st.text_input("Ville", "Dar es Salaam")
-        i_land_area = st.number_input("Surface Terrain (m²)", value=7454, step=100)
-        
-    with col_right:
-        st.markdown("#### Paramètres Urbanistiques")
+        i_land_area = st.number_input("Surface Terrain (m²)", 7454, step=100)
+    with col2:
+        st.markdown("### Urbanisme")
         c1, c2, c3 = st.columns(3)
-        i_const_rate = c1.number_input("Emprise (%)", value=60, step=5)
-        i_far = c2.number_input("FAR", value=3.45, step=0.05)
-        i_efficiency = c3.number_input("Efficacité (%)", value=80, step=5)
+        i_const_rate = c1.number_input("Emprise (%)", 60)
+        i_far = c2.number_input("FAR", 3.45)
+        i_efficiency = c3.number_input("Efficacité (%)", 80)
         
-        # Live KPI
-        calc_gfa = (i_land_area * i_const_rate/100) * i_far
-        calc_gla = calc_gfa * (i_efficiency / 100)
-        st.info(f"📊 **Résultat Potentiel :**\nGFA (Construit) : **{calc_gfa:,.0f} m²**\nGLA (Louable) : **{calc_gla:,.0f} m²**")
+        calc_gfa = i_land_area * (i_const_rate/100) * i_far
+        calc_gla = calc_gfa * (i_efficiency/100)
+        st.success(f"🏗️ Potentiel Constructible : **{calc_gfa:,.0f} m² GFA** |  🔑 Surface Louable : **{calc_gla:,.0f} m² GLA**")
 
-# --- ETAPE 2 : CONSTRUCTION ---
+# 2. CONSTRUCTION
 with step2:
-    st.markdown("#### Coûts de Construction & Planning")
-    
-    col_toggle, col_details = st.columns([1, 3])
-    use_research = col_toggle.toggle("Mode Expert (Par Asset)", value=True)
+    st.markdown("### Stratégie de Construction")
+    use_research = st.toggle("Mode Expert (Coûts par Asset)", True)
     
     if use_research:
         default_asset_costs = pd.DataFrame([
-            {"Asset Class": "Residential", "Cost €/m²": 1190},
-            {"Asset Class": "Office", "Cost €/m²": 1093},
-            {"Asset Class": "Retail", "Cost €/m²": 1200},
-            {"Asset Class": "Logistics", "Cost €/m²": 800},
+            {"Asset Class": "residential", "Cost €/m²": 1190},
+            {"Asset Class": "office", "Cost €/m²": 1093},
+            {"Asset Class": "retail", "Cost €/m²": 1200},
+            {"Asset Class": "logistics", "Cost €/m²": 800},
+            {"Asset Class": "hotel", "Cost €/m²": 1500},
         ])
         df_asset_costs = st.data_editor(default_asset_costs, num_rows="dynamic", use_container_width=True, hide_index=True)
         i_struct = i_finish = 0
@@ -78,126 +69,95 @@ with step2:
         i_finish = c2.number_input("Finitions (€/m²)", 400)
         df_asset_costs = pd.DataFrame()
 
-    with st.expander("Voir les Soft Costs & Amenities", expanded=False):
-        sc1, sc2, sc3 = st.columns(3)
-        i_permits = sc1.number_input("Permis (€)", 20000)
-        i_arch = sc2.number_input("Archi (%)", 3.0)
-        i_contingency = sc3.number_input("Contingence (%)", 5.0)
-        
-        st.markdown("---")
-        st.write("**Amenities (Padel, Gym...)**")
-        default_amenities = pd.DataFrame([
-            {"Nom": "Padel", "Surface": 300, "Coût": 400, "Actif": True},
-            {"Nom": "Gym", "Surface": 100, "Coût": 800, "Actif": False},
-        ])
-        edited_amenities = st.data_editor(default_amenities, num_rows="dynamic", use_container_width=True, hide_index=True)
+    with st.expander("Honoraires & Soft Costs"):
+        c1, c2, c3 = st.columns(3)
+        i_permits = c1.number_input("Permis (€)", 20000)
+        i_arch = c2.number_input("Architecte (%)", 3.0)
+        i_contingency = c3.number_input("Contingence (%)", 5.0)
+        st.write("**Amenities**")
+        default_amenities = pd.DataFrame([{"Nom": "Padel", "Surface": 300, "Coût": 400, "Actif": True}])
+        edited_amenities = st.data_editor(default_amenities, num_rows="dynamic", hide_index=True)
         am_capex = (edited_amenities[edited_amenities["Actif"]]["Surface"] * edited_amenities[edited_amenities["Actif"]]["Coût"]).sum()
-        st.caption(f"Budget Amenities: {am_capex:,.0f} €")
 
-    st.caption("Planning S-Curve")
+    st.caption("Courbe de dépense (S-Curve)")
     i_s1 = st.slider("Année 1 (%)", 0, 100, 40)
     i_s2 = st.slider("Année 2 (%)", 0, 100, 40)
     i_s3 = 100 - i_s1 - i_s2
 
-# --- ETAPE 3 : UNITÉS ---
+# 3. UNITS
 with step3:
-    st.markdown("#### Mix Produit & Parking")
-    col_u_left, col_u_right = st.columns([3, 1])
+    st.markdown("### Grille Locative & Parking")
+    col_top_u, col_top_p = st.columns([3, 1])
+    with col_top_p:
+        i_parking_cost = st.number_input("Coût Parking (€/place)", 18754)
     
-    with col_u_right:
-        st.info("💡 Saisissez vos unités ici. Le parking est calculé automatiquement.")
-        i_parking_cost = st.number_input("Coût Place Parking (€)", 18754)
+    units_data = []
+    # Offices
+    for t in ["OF-L", "OF-M", "OF-S"]:
+        surf = 3000 if t != "OF-S" else 2640
+        units_data.append({"Code": t, "Asset Class": "office", "Surface (m²)": surf, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio": 2.5, "Occupancy %": 90, "Rent Growth %": 5, "Appreciation %": 4.5})
+    # Resi T2 VP (4)
+    for _ in range(4): units_data.append({"Code": "T2-VP", "Asset Class": "residential", "Surface (m²)": 70, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
+    # Resi T2 VEFA (6)
+    for _ in range(6): units_data.append({"Code": "T2-VEFA", "Asset Class": "residential", "Surface (m²)": 70, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
+    # Resi T3 (4+8)
+    for _ in range(4): units_data.append({"Code": "T3-VP", "Asset Class": "residential", "Surface (m²)": 110, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
+    for _ in range(8): units_data.append({"Code": "T3-VEFA", "Asset Class": "residential", "Surface (m²)": 110, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
+    # Resi T4 (6+6)
+    for _ in range(6): units_data.append({"Code": "T4-VP", "Asset Class": "residential", "Surface (m²)": 150, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
+    for _ in range(6): units_data.append({"Code": "T4-VEFA", "Asset Class": "residential", "Surface (m²)": 150, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
+
+    df_default_units = pd.DataFrame(units_data)
     
-    with col_u_left:
-        # Chargement des 37 unités
-        units_data = []
-        # Offices
-        units_data.extend([
-            {"Code": "OF-L", "Type": "Bureaux", "Surface (m²)": 3000, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio": 2.5, "Occupancy %": 90, "Rent Growth %": 5, "Appreciation %": 4.5},
-            {"Code": "OF-M", "Type": "Bureaux", "Surface (m²)": 3000, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio": 2.5, "Occupancy %": 90, "Rent Growth %": 5, "Appreciation %": 4.5},
-            {"Code": "OF-S", "Type": "Bureaux", "Surface (m²)": 2640, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio": 2.5, "Occupancy %": 90, "Rent Growth %": 5, "Appreciation %": 4.5},
-        ])
-        # T2 VP
-        for _ in range(4): units_data.append({"Code": "T2-VP", "Type": "T2", "Surface (m²)": 70, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
-        # T2 VEFA
-        for _ in range(6): units_data.append({"Code": "T2-VEFA", "Type": "T2", "Surface (m²)": 70, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
-        # T3 VP
-        for _ in range(4): units_data.append({"Code": "T3-VP", "Type": "T3", "Surface (m²)": 110, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
-        # T3 VEFA
-        for _ in range(8): units_data.append({"Code": "T3-VEFA", "Type": "T3", "Surface (m²)": 110, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
-        # T4 VP
-        for _ in range(6): units_data.append({"Code": "T4-VP", "Type": "T4", "Surface (m²)": 150, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
-        # T4 VEFA
-        for _ in range(6): units_data.append({"Code": "T4-VEFA", "Type": "T4", "Surface (m²)": 150, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
+    col_conf = {
+        "Asset Class": st.column_config.SelectboxColumn(options=["office", "residential", "retail", "logistics", "hotel"]),
+        "Mode": st.column_config.SelectboxColumn(options=["Rent", "Sale", "Mixed"]),
+        "Price (€/m²)": st.column_config.NumberColumn(format="%d €"),
+        "Rent (€/m²/mo)": st.column_config.NumberColumn(format="%.2f €"),
+        "Occupancy %": st.column_config.NumberColumn(format="%d %%"),
+        "Rent Growth %": st.column_config.NumberColumn(format="%.1f %%"),
+    }
+    df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True, height=300, hide_index=True)
 
-        df_default_units = pd.DataFrame(units_data)
-        
-        col_conf = {
-            "Price (€/m²)": st.column_config.NumberColumn(format="%d €"),
-            "Rent (€/m²/mo)": st.column_config.NumberColumn(format="%.2f €"),
-            "Mode": st.column_config.SelectboxColumn(options=["Rent", "Sale", "Mixed"]),
-            "Parking per unit": st.column_config.NumberColumn(label="Pk Fixed"),
-            "Parking ratio": st.column_config.NumberColumn(label="Pk Ratio"),
-            "Occupancy %": st.column_config.NumberColumn(label="Occ %", format="%d %%"),
-            "Rent Growth %": st.column_config.NumberColumn(label="Rent Grow", format="%.1f %%"),
-            "Appreciation %": st.column_config.NumberColumn(label="Asset Grow", format="%.1f %%"),
-        }
-        df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True, height=300, hide_index=True)
-
-# --- ETAPE 4 : FINANCE ---
+# 4. FINANCE
 with step4:
-    st.markdown("#### Hypothèses Financières")
+    t_debt, t_ops, t_exit = st.tabs(["🏦 Dette", "⚙️ Opérations", "🚀 Exit"])
+    with t_debt:
+        c1, c2 = st.columns(2)
+        with c1:
+            i_debt = st.number_input("Dette (€)", 14504579)
+            i_rate = st.number_input("Taux (%)", 4.5)
+            i_term = st.number_input("Durée (ans)", 20)
+        with c2:
+            i_grace_months = st.number_input("Franchise (mois)", 24)
+            i_arr_fee_pct = st.number_input("Arrangement Fee (%)", 1.0)
+            i_upfront_flat = st.number_input("Frais Dossier (€)", 150000)
+            i_prepay_fee = st.number_input("Pénalité Remb. Anticipé (%)", 2.0)
+            st.info(f"Coût Upfront: {(i_upfront_flat + i_debt*i_arr_fee_pct/100):,.0f} €")
     
-    # Disposition en 3 colonnes claires
-    c_fin, c_op, c_exit = st.columns(3)
-    
-    with c_fin:
-        st.markdown("**🏦 Dette**")
-        i_debt = st.number_input("Montant (€)", 14504579)
-        i_rate = st.number_input("Taux (%)", 4.5)
-        i_term = st.number_input("Durée (ans)", 20)
-        i_grace_months = st.number_input("Franchise (mois)", 24)
-        i_arr_fee_pct = st.number_input("Frais Dossier (%)", 1.0)
-        i_upfront_flat = st.number_input("Frais Fixes (€)", 150000)
-        i_prepay_fee = st.number_input("Pénalité Sortie (%)", 2.0)
-        
-    with c_op:
-        st.markdown("**🔌 Opérations**")
-        i_occupancy_def = st.number_input("Occ. Défaut (%)", 90)
-        i_rent_growth_def = st.number_input("Croissance Loyer (%)", 2.5)
-        i_inflation = st.number_input("Inflation (%)", 4.0)
-        i_opex_m2 = st.number_input("OPEX (€/m²)", 28.0)
+    with t_ops:
+        c1, c2 = st.columns(2)
+        i_occupancy_def = c1.number_input("Occupation Défaut (%)", 90)
+        i_rent_growth_def = c2.number_input("Croissance Loyer Défaut (%)", 2.5)
+        i_inflation = c1.number_input("Inflation (%)", 4.0)
+        i_opex_m2 = c2.number_input("OPEX (€/m²)", 28.0)
         i_pm_fee = st.number_input("Gestion (%)", 4.5)
-        
-    with c_exit:
-        st.markdown("**🚀 Exit**")
-        i_hold_period = st.number_input("Année Sortie", 20)
-        i_exit_yield = st.number_input("Yield Sortie (%)", 8.25)
-        i_transac_fees = st.number_input("Frais Vente (%)", 5.0)
-        st.markdown("**Taxes**")
-        i_tax_rate = st.number_input("IS (%)", 30.0)
-        i_tax_holiday = st.number_input("Exonération (ans)", 3)
 
-# =============================================================================
-# 6. ACTION & DASHBOARD RÉSULTATS
-# =============================================================================
-st.write("")
-st.write("")
-_, col_btn, _ = st.columns([1, 2, 1])
-run_btn = col_btn.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=True)
+    with t_exit:
+        c1, c2 = st.columns(2)
+        i_hold_period = c1.number_input("Année Sortie", 20)
+        i_exit_yield = c2.number_input("Yield (%)", 8.25)
+        i_transac_fees = c1.number_input("Frais Vente (%)", 5.0)
+        i_tax_rate = c2.number_input("Impôt Société (%)", 30.0)
+        i_tax_holiday = c1.number_input("Exonération (ans)", 3)
 
-if run_btn:
-    # Mapping des inputs pour le moteur
+st.write("")
+if st.button("✨ GÉNÉRER LE BUSINESS PLAN", type="primary", use_container_width=True):
+    # MAPPING
     inp_gen = {'land_area': i_land_area, 'parcels': 3, 'construction_rate': 60, 'far': i_far, 'building_efficiency': i_efficiency, 'country': "Tanzanie", 'city': i_city, 'fx_eur_local': 2853.1, 'corporate_tax_rate': i_tax_rate, 'tax_holiday': i_tax_holiday, 'discount_rate': 10.0}
     inp_park = {'cost_per_space': i_parking_cost}
     park = Parking(inp_park, df_units)
-    
-    inp_const = {
-        'structure_cost': i_struct if not use_research else 0, 'finishing_cost': i_finish if not use_research else 0, 'utilities_cost': 200, 
-        'permit_fees': i_permits, 'architect_fees_pct': i_arch, 'development_fees_pct': 2.0, 'marketing_fees_pct': 1.0, 'contingency_pct': i_contingency,
-        's_curve_y1': i_s1/100, 's_curve_y2': i_s2/100, 's_curve_y3': i_s3/100, 'use_research_cost': use_research,
-        'df_asset_costs': df_asset_costs, 'amenities_total_capex': am_capex, 'parking_capex': park.total_capex 
-    }
+    inp_const = {'structure_cost': i_struct if not use_research else 0, 'finishing_cost': i_finish if not use_research else 0, 'utilities_cost': 200, 'permit_fees': i_permits, 'architect_fees_pct': i_arch, 'development_fees_pct': 2.0, 'marketing_fees_pct': 1.0, 'contingency_pct': i_contingency, 's_curve_y1': i_s1/100, 's_curve_y2': i_s2/100, 's_curve_y3': i_s3/100, 'use_research_cost': use_research, 'df_asset_costs': df_asset_costs, 'amenities_total_capex': am_capex, 'parking_capex': park.total_capex}
     inp_fin = {'debt_amount': i_debt, 'interest_rate': i_rate, 'loan_term': i_term, 'grace_period': i_grace_months/12, 'arrangement_fee_pct': i_arr_fee_pct, 'upfront_fees': i_upfront_flat, 'prepayment_fee_pct': i_prepay_fee}
     inp_op = {'rent_growth': i_rent_growth_def, 'exit_yield': i_exit_yield, 'holding_period': i_hold_period, 'inflation': i_inflation, 'opex_per_m2': i_opex_m2, 'pm_fee_pct': i_pm_fee, 'occupancy_rate': i_occupancy_def, 'transac_fees_exit': i_transac_fees}
 
@@ -210,18 +170,27 @@ if run_btn:
         sched = Scheduler(df_units, op, gen, fin)
         cf = CashflowEngine(gen, const, fin, op, amort, sched)
 
-        st.markdown("### 🎯 Résultats Clés")
+        # --- DASHBOARD RESULTS ---
+        st.markdown("### 🎯 Performance Financière")
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("IRR (Levered)", f"{cf.kpis['Levered IRR']:.2f}%")
+        k1.metric("IRR (Levered)", f"{cf.kpis['Levered IRR']:.2f}%", delta="Obj > 15%")
         k2.metric("Equity Multiple", f"{cf.kpis['Equity Multiple']:.2f}x")
-        k3.metric("Equity Nécessaire", f"€{cf.kpis['Peak Equity']:,.0f}")
+        k3.metric("Peak Equity", f"€{cf.kpis['Peak Equity']:,.0f}")
         k4.metric("Profit (NPV)", f"€{cf.kpis['NPV']:,.0f}")
+
+        tab_r1, tab_r2, tab_r3 = st.tabs(["📊 Cashflows", "📋 Rent Schedule", "📑 Détails"])
         
-        tab_graph, tab_data = st.tabs(["📊 Graphique Cashflow", "📋 Tableau Détaillé"])
-        with tab_graph:
-            st.bar_chart(cf.df[['NOI', 'Debt Service', 'Net Cash Flow']], color=["#10b981", "#ef4444", "#3b82f6"])
-        with tab_data:
+        with tab_r1:
+            st.bar_chart(cf.df[['NOI', 'Debt Service', 'Net Cash Flow']], color=["#22c55e", "#ef4444", "#3b82f6"])
+        
+        with tab_r2:
+            st.markdown("#### Rent Schedule (Chiffre d'Affaires par Asset Class)")
+            df_rent_sched = pd.DataFrame(sched.rent_schedule_by_asset)
+            st.dataframe(df_rent_sched.style.format("{:,.0f}"), use_container_width=True)
+            st.area_chart(df_rent_sched)
+
+        with tab_r3:
             st.dataframe(cf.df.style.format("{:,.0f}"), use_container_width=True)
-            
+
     except Exception as e:
-        st.error(f"Erreur : {e}")
+        st.error(f"Erreur de calcul: {e}")
