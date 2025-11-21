@@ -236,13 +236,12 @@ class Amortization:
 class Scheduler:
     """
     Reconstructs 'RentSchedule' and 'SaleSchedule'.
+    Updated to support granular overrides: Occupancy %, Rent Growth %, Asset Value Growth %
     """
     def __init__(self, df_units, operation: OperationExit, general: General, financing: Financing):
         self.rent_schedule = {}
         self.sale_schedule = {}
-        
         years = range(1, operation.holding_period + 2)
-        
         for y in years:
             self.rent_schedule[y] = 0.0
             self.sale_schedule[y] = 0.0
@@ -252,9 +251,9 @@ class Scheduler:
             base_rent_monthly = row['Rent (€/m²/mo)']
             base_price_m2 = row['Price (€/m²)']
             mode = row['Mode']
-            
             start_year = int(row['Start Year']) if pd.notna(row['Start Year']) else 999
             
+            # Sale Year Logic
             sale_year_raw = row['Sale Year']
             if str(sale_year_raw).lower() == 'exit':
                 sale_year = operation.holding_period
@@ -263,17 +262,32 @@ class Scheduler:
             else:
                 sale_year = 999
                 
+            # --- GRANULAR OVERRIDES (Key update) ---
+            # 1. Occupancy Override (Col H)
+            occ_override = pd.to_numeric(row.get('Occupancy %', np.nan), errors='coerce')
+            occupancy = (occ_override / 100.0) if pd.notna(occ_override) else operation.occupancy_default
+            
+            # 2. Rent Growth Override (Col K)
+            rent_growth_override = pd.to_numeric(row.get('Rent Growth %', np.nan), errors='coerce')
+            rent_growth = (rent_growth_override / 100.0) if pd.notna(rent_growth_override) else operation.rent_growth
+            
+            # 3. Asset Value Growth Override (Col L)
+            price_growth_override = pd.to_numeric(row.get('Appreciation %', np.nan), errors='coerce')
+            price_growth = (price_growth_override / 100.0) if pd.notna(price_growth_override) else operation.inflation
+
             if mode in ['Rent', 'Mixed']:
                 current_rent_m2 = base_rent_monthly * 12
                 for y in years:
                     if y >= start_year and y <= sale_year:
-                        indexed_rent = current_rent_m2 * ((1 + operation.rent_growth) ** (y - start_year))
-                        val = surface * indexed_rent * operation.occupancy_default
+                        # Use unit-specific rent growth
+                        indexed_rent = current_rent_m2 * ((1 + rent_growth) ** (y - start_year))
+                        val = surface * indexed_rent * occupancy
                         self.rent_schedule[y] += val
 
             if mode in ['Sale', 'Mixed']:
                 if sale_year <= operation.holding_period:
-                    price_indexed = base_price_m2 * ((1 + operation.inflation) ** (sale_year - start_year)) 
+                    # Use unit-specific price growth (Appreciation)
+                    price_indexed = base_price_m2 * ((1 + price_growth) ** (sale_year - start_year)) 
                     val = surface * price_indexed
                     self.sale_schedule[sale_year] += val
 
@@ -281,55 +295,33 @@ class CashflowEngine:
     """
     Reconstructs the final 'Cashflow' sheet.
     """
-    def __init__(self, 
-                 general: General, 
-                 construction: Construction, 
-                 financing: Financing, 
-                 operation: OperationExit, 
-                 amortization: Amortization, 
-                 scheduler: Scheduler):
-        
+    def __init__(self, general: General, construction: Construction, financing: Financing, operation: OperationExit, amortization: Amortization, scheduler: Scheduler):
         self.df = pd.DataFrame()
         self.kpis = {}
-        
         years = range(0, operation.holding_period + 1)
         data = []
         
         rent_n_plus_1 = scheduler.rent_schedule[operation.holding_period + 1]
-        
         opex_fixed_n1 = general.gfa * operation.opex_per_m2 * ((1 + operation.inflation) ** (operation.holding_period))
         opex_var_n1 = rent_n_plus_1 * operation.pm_fee_pct
         noi_n_plus_1 = rent_n_plus_1 - (opex_fixed_n1 + opex_var_n1)
-        
         gross_exit_val = noi_n_plus_1 / operation.exit_yield
         net_exit_val = gross_exit_val * (1 - operation.transac_fees_exit)
 
         for y in years:
             row = {'Year': y}
-            
             if y == 0:
-                row['Rental Income'] = 0
-                row['Sales Income'] = 0
-                row['OPEX'] = 0
-                row['NOI'] = 0
-                row['CAPEX'] = 0 
-                row['Debt Service'] = 0
+                row['Rental Income'] = row['Sales Income'] = row['OPEX'] = row['NOI'] = row['CAPEX'] = row['Debt Service'] = row['Tax'] = row['Debt Drawdown'] = 0
                 row['Upfront Fees'] = -financing.total_upfront_fees
-                row['Tax'] = 0
                 row['Net Cash Flow'] = row['Upfront Fees']
-                row['Debt Drawdown'] = 0
-                
             else:
                 rent = scheduler.rent_schedule[y]
                 sales = scheduler.sale_schedule[y]
-                
-                if y == operation.holding_period:
-                    sales += net_exit_val
+                if y == operation.holding_period: sales += net_exit_val
                 
                 opex_fixed = general.gfa * operation.opex_per_m2 * ((1 + operation.inflation) ** (y - 1))
                 opex_var = rent * operation.pm_fee_pct
                 total_opex = opex_fixed + opex_var
-                
                 noi = rent + sales - total_opex
                 
                 row['Rental Income'] = rent
@@ -342,34 +334,19 @@ class CashflowEngine:
                 
                 debt_data = amortization.schedule.get(y, {'payment': 0, 'closing': 0, 'interest': 0})
                 payment = debt_data['payment']
+                bullet = debt_data['closing'] if y == operation.holding_period else 0
+                prep_fee = bullet * financing.prepayment_fee_pct if y == operation.holding_period else 0
+                row['Debt Service'] = -(payment + bullet + prep_fee)
                 
-                bullet = 0
-                prep_fee = 0
-                if y == operation.holding_period:
-                    bullet = debt_data['closing']
-                    prep_fee = bullet * financing.prepayment_fee_pct
-                
-                total_debt_service = payment + bullet + prep_fee
-                row['Debt Service'] = -total_debt_service
-                
-                interest = debt_data['interest']
-                ebt = noi - interest
-                
-                tax = 0
-                if ebt > 0 and y > general.tax_holiday:
-                    tax = ebt * general.corporate_tax_rate
-                
+                ebt = noi - debt_data['interest']
+                tax = ebt * general.corporate_tax_rate if ebt > 0 and y > general.tax_holiday else 0
                 row['Tax'] = -tax
                 row['Upfront Fees'] = 0
                 row['Debt Drawdown'] = 0
-                
                 row['Net Cash Flow'] = noi + row['CAPEX'] + row['Debt Service'] + row['Tax']
-            
             data.append(row)
             
         self.df = pd.DataFrame(data).set_index('Year')
-        
-        # HANDLE EQUITY INJECTION (Drawdown)
         if 1 in self.df.index:
             self.df.at[1, 'Debt Drawdown'] = financing.debt_amount_input
             self.df.at[1, 'Net Cash Flow'] += financing.debt_amount_input
@@ -378,20 +355,8 @@ class CashflowEngine:
 
     def calculate_kpis(self, discount_rate):
         flows = self.df['Net Cash Flow'].values
-        
         try: irr = npf.irr(flows)
         except: irr = 0
-            
         npv = npf.npv(discount_rate, flows)
-        
-        negative_flows = flows[flows < 0].sum()
-        positive_flows = flows[flows > 0].sum()
-        equity_needed = abs(negative_flows)
-        moic = positive_flows / equity_needed if equity_needed > 0 else 0
-        
-        self.kpis = {
-            'Levered IRR': irr * 100,
-            'NPV': npv,
-            'Equity Multiple': moic,
-            'Peak Equity': equity_needed
-        }
+        equity_needed = abs(flows[flows < 0].sum())
+        self.kpis = {'Levered IRR': irr * 100, 'NPV': npv, 'Equity Multiple': flows[flows > 0].sum() / equity_needed if equity_needed > 0 else 0, 'Peak Equity': equity_needed}
