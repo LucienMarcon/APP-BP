@@ -55,17 +55,17 @@ with st.container(border=True):
         i_discount = st.number_input("Taux d'Actualisation (%)", value=10.0)
 
 # =============================================================================
-# 2. CONSTRUCTION (DESIGN GAMIFIÉ)
+# 2. CONSTRUCTION (DESIGN GAMIFIÉ & DYNAMIQUE)
 # =============================================================================
 st.markdown("### 🏗️ Construction & Capex")
 
 with st.container(border=True):
     tab_build, tab_amenities, tab_scurve = st.tabs(["🧱 Coûts Bâtiment", "🎾 Amenities & Extras", "📈 Planning (S-Curve)"])
 
-  with tab_build:
+    with tab_build:
         use_research = st.toggle("Utiliser les coûts détaillés par classe d'actif ?", value=True)
         
-        # Initialisation du DataFrame de coûts (vide ou par défaut)
+        # Initialisation du DataFrame de coûts par défaut
         default_asset_costs = pd.DataFrame([
             {"Asset Class": "Residential", "Cost €/m²": 1190},
             {"Asset Class": "Office", "Cost €/m²": 1093},
@@ -74,11 +74,11 @@ with st.container(border=True):
         ])
 
         if use_research:
-            st.info("💡 Mode Expert : Ajoutez/Supprimez des lignes. Le 'Nom' doit correspondre au 'Type' dans la liste des unités.")
+            st.info("💡 Mode Expert : Le 'Nom' doit correspondre à une partie du 'Type' dans la liste des unités.")
             
-            # TABLEAU ÉDITABLE DYNAMIQUE
+            # TABLEAU ÉDITABLE DYNAMIQUE POUR LES COÛTS
             column_config_costs = {
-                "Asset Class": st.column_config.TextColumn("Classe d'Actif (Mot-clé)", help="Ce mot doit se trouver dans le Type d'unité (ex: 'Office' matchera 'Office-Large')"),
+                "Asset Class": st.column_config.TextColumn("Classe d'Actif (Mot-clé)", help="Ce mot doit se trouver dans le Type d'unité"),
                 "Cost €/m²": st.column_config.NumberColumn("Coût GFA (€/m²)", format="%d €")
             }
             
@@ -90,42 +90,17 @@ with st.container(border=True):
                 key="editor_costs"
             )
             
-            # On met à zéro les variables globales pour la logique
+            # Variables globales à 0 pour la logique
             i_struct = i_finish = 0
         else:
             st.warning("⚡ Mode Rapide : Coût moyen appliqué à tout le bâtiment.")
-            # On garde un DataFrame vide pour le moteur
+            # DataFrame vide pour éviter les erreurs
             df_asset_costs = pd.DataFrame()
             
             c1, c2, c3 = st.columns(3)
             i_struct = c1.number_input("Structure (€/m²)", value=800, step=50)
             i_finish = c2.number_input("Finitions (€/m²)", value=400, step=50)
             i_util_dummy = c3.number_input("VRD / Utilities (€/m²)", value=200, step=50)
-
-        st.divider()
-        st.markdown("**Frais & Honoraires (Soft Costs)**")
-        fc1, fc2, fc3, fc4 = st.columns(4)
-        i_permits = fc1.number_input("Permis (Fixe €)", value=20000)
-        i_arch = fc2.number_input("Archi (%)", value=3.0, step=0.1)
-        i_dev = fc3.number_input("Dev/Marketing (%)", value=3.0, step=0.1)
-        i_contingency = fc4.number_input("Contingence (%)", value=5.0, step=0.5)
-        
-        if use_research:
-            st.info("💡 Mode Expert Activé : Coûts différenciés par typologie.")
-            c_res, c_off, c_ret = st.columns(3)
-            i_cost_res = c_res.number_input("Coût Résidentiel (€/m² GFA)", value=1190, step=50)
-            i_cost_off = c_off.number_input("Coût Bureaux (€/m² GFA)", value=1093, step=50)
-            i_cost_ret = c_ret.number_input("Coût Retail (€/m² GFA)", value=1200, step=50)
-            # Variables globales à 0 pour la logique
-            i_struct = i_finish = 0
-        else:
-            st.warning("⚡ Mode Rapide : Coût moyen appliqué à tout le bâtiment.")
-            c1, c2, c3 = st.columns(3)
-            i_struct = c1.number_input("Structure (€/m²)", value=800, step=50)
-            i_finish = c2.number_input("Finitions (€/m²)", value=400, step=50)
-            i_util_dummy = c3.number_input("VRD / Utilities (€/m²)", value=200, step=50)
-            # Variables par asset à 0
-            i_cost_res = i_cost_off = i_cost_ret = 0
 
         st.divider()
         st.markdown("**Frais & Honoraires (Soft Costs)**")
@@ -202,11 +177,11 @@ if st.button("Run Model", type="primary"):
     
     inputs_construction = {
         'structure_cost': i_struct, 'finishing_cost': i_finish, 'utilities_cost': 200,
-        'permit_fees': i_permits, 'architect_fees_pct': i_arch, 'development_fees_pct': i_dev, 'marketing_fees_pct': 0,
+        'permit_fees': i_permits, 'architect_fees_pct': i_arch, 'development_fees_pct': i_dev, 'marketing_fees_pct': 0, 
         'contingency_pct': i_contingency,
         's_curve_y1': i_s1, 's_curve_y2': i_s2, 's_curve_y3': i_s3,
         'use_research_cost': use_research,
-        'df_asset_costs': df_asset_costs,  # <--- LE NOUVEAU TABLEAU EST PASSÉ ICI
+        'df_asset_costs': df_asset_costs, # Le tableau dynamique est bien passé ici
         'amenities_total_capex': amenities_capex
     }
     
@@ -220,30 +195,28 @@ if st.button("Run Model", type="primary"):
     }
 
     # B. Run Classes
-    gen = General(inputs_general)
-    const = Construction(inputs_construction, gen, df_units) # <-- Passe bien df_units
-    fin = Financing(inputs_financing, const.total_capex)
-    amort = Amortization(fin)
-    op = OperationExit(inputs_op_exit)
-    sched = Scheduler(df_units, op, gen, fin)
-    cf = CashflowEngine(gen, const, fin, op, amort, sched)
+    try:
+        gen = General(inputs_general)
+        const = Construction(inputs_construction, gen, df_units)
+        fin = Financing(inputs_financing, const.total_capex)
+        amort = Amortization(fin)
+        op = OperationExit(inputs_op_exit)
+        sched = Scheduler(df_units, op, gen, fin)
+        cf = CashflowEngine(gen, const, fin, op, amort, sched)
 
-    # C. Display
-    st.success("Calculations Complete.")
-    
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Levered IRR", f"{cf.kpis['Levered IRR']:.2f}%")
-    k2.metric("Equity Multiple", f"{cf.kpis['Equity Multiple']:.2f}x")
-    k3.metric("Peak Equity", f"€{cf.kpis['Peak Equity']:,.0f}")
-    k4.metric("NPV", f"€{cf.kpis['NPV']:,.0f}")
-    
-    st.subheader("Detailed Cashflow")
-    st.dataframe(cf.df.style.format("{:,.0f}"), use_container_width=True)
-    
-    st.bar_chart(cf.df[['NOI', 'Debt Service', 'Net Cash Flow']])
-
-
-
-
-
-
+        # C. Display
+        st.success("Calculations Complete.")
+        
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Levered IRR", f"{cf.kpis['Levered IRR']:.2f}%")
+        k2.metric("Equity Multiple", f"{cf.kpis['Equity Multiple']:.2f}x")
+        k3.metric("Peak Equity", f"€{cf.kpis['Peak Equity']:,.0f}")
+        k4.metric("NPV", f"€{cf.kpis['NPV']:,.0f}")
+        
+        st.subheader("Detailed Cashflow")
+        st.dataframe(cf.df.style.format("{:,.0f}"), use_container_width=True)
+        
+        st.bar_chart(cf.df[['NOI', 'Debt Service', 'Net Cash Flow']])
+        
+    except Exception as e:
+        st.error(f"Une erreur est survenue lors du calcul : {e}")
