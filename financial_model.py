@@ -25,7 +25,10 @@ class Parking:
                 fixed = pd.to_numeric(row.get('Parking per unit', 0), errors='coerce')
                 ratio = pd.to_numeric(row.get('Parking ratio', 0), errors='coerce')
                 surface = pd.to_numeric(row.get('Surface (m²)', 0), errors='coerce')
-                spaces = (fixed if not pd.isna(fixed) else 0) + ((surface / 100) * (ratio if not pd.isna(ratio) else 0))
+                if pd.isna(fixed): fixed = 0
+                if pd.isna(ratio): ratio = 0
+                if pd.isna(surface): surface = 0
+                spaces = fixed + ((surface / 100) * ratio)
                 self.total_spaces += spaces
         self.total_capex = self.total_spaces * self.cost_per_space
 
@@ -57,9 +60,9 @@ class Construction:
                 asset_name = str(row['Asset Class'])
                 cost_per_m2 = row['Cost €/m²']
                 mask = df_units['Asset Class'].astype(str).str.contains(asset_name, case=False, na=False)
-                gla_for_this_asset = df_units.loc[mask, 'Surface (m²)'].sum()
+                gla = df_units.loc[mask, 'Surface (m²)'].sum()
                 eff_decimal = general.building_efficiency
-                gfa_for_this_asset = gla_for_this_asset / eff_decimal if eff_decimal else 0
+                gfa = gla / eff_decimal if eff_decimal else 0
                 self.total_hard_costs += (gfa * cost_per_m2)
         else:
             self.hard_cost_per_m2 = self.structure_cost + self.finishing_cost + self.utilities_cost
@@ -87,6 +90,7 @@ class Financing:
         self.debt_principal = self.debt_amount_input
         self.arrangement_fee_amt = self.debt_principal * self.arrangement_fee_pct
         self.total_upfront_fees = self.arrangement_fee_amt + self.upfront_fees_flat
+        self.equity_needed = 0 
 
 class CapexSummary:
     def __init__(self, construction: Construction, financing: Financing):
@@ -106,7 +110,6 @@ class OperationExit:
         self.transac_fees_exit = inputs.get('transac_fees_exit', 5.0) / 100.0
 
 class Amortization:
-    # C'est ici que la correction est appliquée : 2 arguments explicites
     def __init__(self, financing: Financing, operation: OperationExit):
         self.schedule = {}
         balance = financing.debt_principal
@@ -239,8 +242,10 @@ class CashflowEngine:
                 bullet = debt['closing'] if y == operation.holding_period else 0
                 prep_fee = bullet * financing.prepayment_fee_pct
                 row['Debt Service'] = -(debt['payment'] + bullet + prep_fee)
+                
                 ebt = noi - debt['interest']
                 row['Tax'] = -(ebt * general.corporate_tax_rate) if (ebt > 0 and y > general.tax_holiday) else 0
+                
                 row['Net Cash Flow'] = noi + row['CAPEX'] + row['Debt Service'] + row['Tax'] + row['Drawdowns'] + exit_proc
             data.append(row)
             
