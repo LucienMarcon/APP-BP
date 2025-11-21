@@ -155,7 +155,7 @@ if st.button("✨ LANCER LA SIMULATION", type="primary", use_container_width=Tru
         gen = General(inp_gen)
         const = Construction(inp_const, gen, df_units)
         fin = Financing(inp_fin, const.total_capex)
-        capex_sum = CapexSummary(const, fin) # THE NEW KEY STEP
+        capex_sum = CapexSummary(const, fin)
         amort = Amortization(fin)
         op = OperationExit(inp_op)
         sched = Scheduler(df_units, op, gen, fin)
