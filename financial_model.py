@@ -3,56 +3,36 @@ import numpy_financial as npf
 import pandas as pd
 
 class General:
-    """
-    Reconstructs the 'General' sheet logic exactly.
-    """
     def __init__(self, inputs):
         self.land_area = inputs.get('land_area', 7454)
         self.parcels = inputs.get('parcels', 3)
         self.construction_rate = inputs.get('construction_rate', 60.0) / 100.0
         self.far = inputs.get('far', 3.45)
         self.building_efficiency = inputs.get('building_efficiency', 80.0) / 100.0
-        
         self.country = inputs.get('country', "Tanzanie")
         self.city = inputs.get('city', "Dar es Salaam")
         self.fx_eur_local = inputs.get('fx_eur_local', 2853.1)
-        
         self.corporate_tax_rate = inputs.get('corporate_tax_rate', 30.0) / 100.0
         self.tax_holiday = inputs.get('tax_holiday', 3)
         self.discount_rate = inputs.get('discount_rate', 10.0) / 100.0
-        
-        # Outputs
         self.buildable_footprint = self.land_area * self.construction_rate
         self.gfa = self.buildable_footprint * self.far
         self.gla = self.gfa * self.building_efficiency
 
 class Parking:
-    """
-    Reconstructs the 'Parking' sheet logic.
-    """
     def __init__(self, inputs, df_units: pd.DataFrame):
         self.cost_per_space = inputs.get('cost_per_space', 18754)
         self.total_spaces = 0
-        
         if not df_units.empty:
             for _, row in df_units.iterrows():
                 fixed = pd.to_numeric(row.get('Parking per unit', 0), errors='coerce')
-                fixed = fixed if not pd.isna(fixed) else 0
-                
                 ratio = pd.to_numeric(row.get('Parking ratio', 0), errors='coerce')
-                ratio = ratio if not pd.isna(ratio) else 0
-                
                 surface = pd.to_numeric(row.get('Surface (m²)', 0), errors='coerce')
-                
-                spaces_from_ratio = (surface / 100) * ratio
-                self.total_spaces += (fixed + spaces_from_ratio)
-        
+                spaces = (fixed if not pd.isna(fixed) else 0) + ((surface / 100) * (ratio if not pd.isna(ratio) else 0))
+                self.total_spaces += spaces
         self.total_capex = self.total_spaces * self.cost_per_space
 
 class Construction:
-    """
-    Reconstructs the 'Construction' sheet logic exactly.
-    """
     def __init__(self, inputs, general: General, df_units: pd.DataFrame):
         self.structure_cost = inputs.get('structure_cost', 800)
         self.finishing_cost = inputs.get('finishing_cost', 400)
@@ -65,57 +45,41 @@ class Construction:
         self.s_curve_y1 = inputs.get('s_curve_y1', 40.0) / 100.0
         self.s_curve_y2 = inputs.get('s_curve_y2', 40.0) / 100.0
         self.s_curve_y3 = inputs.get('s_curve_y3', 20.0) / 100.0
-
         self.use_research_cost = inputs.get('use_research_cost', True)
         self.df_asset_costs = inputs.get('df_asset_costs', pd.DataFrame())
         self.amenities_capex = inputs.get('amenities_total_capex', 0)
         self.parking_capex = inputs.get('parking_capex', 0)
 
-        # 1. GFA Calculation
         total_units_gla = df_units['Surface (m²)'].sum() if not df_units.empty else 0
         efficiency_factor = (1 + (100 - (general.building_efficiency * 100)) / 100)
         self.gfa_calculated = total_units_gla * efficiency_factor
 
-        # 2. Hard Costs
         self.total_hard_costs = 0
         if self.use_research_cost and not self.df_asset_costs.empty:
             for _, row in self.df_asset_costs.iterrows():
                 asset_name = str(row['Asset Class'])
                 cost_per_m2 = row['Cost €/m²']
-                mask = df_units['Type'].str.contains(asset_name, case=False, na=False)
-                gla_for_this_asset = df_units.loc[mask, 'Surface (m²)'].sum()
+                # Match "Asset Class" from inputs with "Asset Class" column in Units
+                mask = df_units['Asset Class'].str.contains(asset_name, case=False, na=False)
+                gla = df_units.loc[mask, 'Surface (m²)'].sum()
                 eff_decimal = general.building_efficiency
-                gfa_for_this_asset = gla_for_this_asset / eff_decimal if eff_decimal else 0
-                self.total_hard_costs += (gfa_for_this_asset * cost_per_m2)
+                gfa = gla / eff_decimal if eff_decimal else 0
+                self.total_hard_costs += (gfa * cost_per_m2)
         else:
             self.hard_cost_per_m2 = self.structure_cost + self.finishing_cost + self.utilities_cost
             self.total_hard_costs = self.hard_cost_per_m2 * self.gfa_calculated
 
-        # 3. Soft Fees
         soft_pct = self.architect_fees_pct + self.development_fees_pct + self.marketing_fees_pct
         self.total_soft_fees = (self.total_hard_costs * (soft_pct / 100)) + self.permit_fees
-
-        # 4. Contingency
         subtotal = self.total_hard_costs + self.total_soft_fees
         self.contingency_amount = subtotal * (self.contingency_pct / 100)
-        
-        # 5. Total Construction Pre-Financing
         self.capex_construction_only = subtotal + self.contingency_amount
-        
-        # 6. FINAL TOTAL (Adding Parking & Amenities)
         self.total_capex = self.capex_construction_only + self.amenities_capex + self.parking_capex
 
     def get_yearly_capex(self):
-        return {
-            1: self.total_capex * self.s_curve_y1,
-            2: self.total_capex * self.s_curve_y2,
-            3: self.total_capex * self.s_curve_y3
-        }
+        return {1: self.total_capex * self.s_curve_y1, 2: self.total_capex * self.s_curve_y2, 3: self.total_capex * self.s_curve_y3}
 
 class Financing:
-    """
-    Reconstructs 'Financing' sheet logic.
-    """
     def __init__(self, inputs, construction_total_capex):
         self.debt_amount_input = inputs.get('debt_amount', 14500000.0)
         self.interest_rate = inputs.get('interest_rate', 4.5) / 100.0
@@ -124,14 +88,9 @@ class Financing:
         self.arrangement_fee_pct = inputs.get('arrangement_fee_pct', 1.0) / 100.0
         self.upfront_fees_flat = inputs.get('upfront_fees', 150000.0)
         self.prepayment_fee_pct = inputs.get('prepayment_fee_pct', 2.0) / 100.0
-
         self.debt_principal = self.debt_amount_input
-        
-        # Fees Calculation
         self.arrangement_fee_amt = self.debt_principal * self.arrangement_fee_pct
         self.total_upfront_fees = self.arrangement_fee_amt + self.upfront_fees_flat
-        
-        # Equity Needed (Total Investment = CAPEX + Fees) - Debt
         self.total_investment = construction_total_capex + self.total_upfront_fees
         self.equity_needed = self.total_investment - self.debt_principal
 
@@ -154,10 +113,7 @@ class Amortization:
         term = financing.loan_term
         grace = financing.grace_period
         amortization_duration = term - grace
-        if amortization_duration > 0:
-            annuity = npf.pmt(rate, amortization_duration, -balance)
-        else:
-            annuity = 0
+        annuity = npf.pmt(rate, amortization_duration, -balance) if amortization_duration > 0 else 0
         for year in range(1, term + 2):
             if year <= grace:
                 interest = balance * rate
@@ -174,20 +130,36 @@ class Amortization:
             if balance < 0: balance = 0
 
 class Scheduler:
+    """
+    Manages Rent Schedule and Sale Schedule.
+    Now splits rent by Asset Class for the dashboard.
+    """
     def __init__(self, df_units, operation: OperationExit, general: General, financing: Financing):
-        self.rent_schedule = {}
+        self.rent_schedule = {} 
+        self.rent_schedule_by_asset = {} # For visualization (residential, office...)
         self.sale_schedule = {}
         years = range(1, operation.holding_period + 2)
+        
         for y in years:
             self.rent_schedule[y] = 0.0
             self.sale_schedule[y] = 0.0
             
+        # Init breakdown dict
+        asset_classes = df_units['Asset Class'].unique() if 'Asset Class' in df_units.columns else []
+        for ac in asset_classes:
+            self.rent_schedule_by_asset[ac] = {y: 0.0 for y in years}
+
         for _, row in df_units.iterrows():
+            asset_class = row.get('Asset Class', 'Other')
+            if asset_class not in self.rent_schedule_by_asset:
+                self.rent_schedule_by_asset[asset_class] = {y: 0.0 for y in years}
+
             surface = row['Surface (m²)']
             base_rent_monthly = row['Rent (€/m²/mo)']
             base_price_m2 = row['Price (€/m²)']
             mode = row['Mode']
             start_year = int(row['Start Year']) if pd.notna(row['Start Year']) else 999
+            
             sale_year_raw = row['Sale Year']
             if str(sale_year_raw).lower() == 'exit':
                 sale_year = operation.holding_period
@@ -196,25 +168,26 @@ class Scheduler:
             else:
                 sale_year = 999
             
-            # Granular Overrides
-            occ_override = pd.to_numeric(row.get('Occupancy %', np.nan), errors='coerce')
-            occupancy = (occ_override / 100.0) if pd.notna(occ_override) else operation.occupancy_default
-            rent_growth_override = pd.to_numeric(row.get('Rent Growth %', np.nan), errors='coerce')
-            rent_growth = (rent_growth_override / 100.0) if pd.notna(rent_growth_override) else operation.rent_growth
-            price_growth_override = pd.to_numeric(row.get('Appreciation %', np.nan), errors='coerce')
-            price_growth = (price_growth_override / 100.0) if pd.notna(price_growth_override) else operation.inflation
+            occ = pd.to_numeric(row.get('Occupancy %', np.nan), errors='coerce')
+            occupancy = (occ / 100.0) if pd.notna(occ) else operation.occupancy_default
+            rg = pd.to_numeric(row.get('Rent Growth %', np.nan), errors='coerce')
+            rent_growth = (rg / 100.0) if pd.notna(rg) else operation.rent_growth
+            ag = pd.to_numeric(row.get('Appreciation %', np.nan), errors='coerce')
+            price_growth = (ag / 100.0) if pd.notna(ag) else operation.inflation
 
             if mode in ['Rent', 'Mixed']:
                 current_rent_m2 = base_rent_monthly * 12
                 for y in years:
                     if y >= start_year and y <= sale_year:
-                        indexed_rent = current_rent_m2 * ((1 + rent_growth) ** (y - start_year))
+                        # Excel Logic: Rent inflates from Year 0 basis: (1+g)^Year
+                        indexed_rent = current_rent_m2 * ((1 + rent_growth) ** y)
                         val = surface * indexed_rent * occupancy
                         self.rent_schedule[y] += val
+                        self.rent_schedule_by_asset[asset_class][y] += val
 
             if mode in ['Sale', 'Mixed']:
                 if sale_year <= operation.holding_period:
-                    price_indexed = base_price_m2 * ((1 + price_growth) ** (sale_year - start_year)) 
+                    price_indexed = base_price_m2 * ((1 + price_growth) ** sale_year)
                     val = surface * price_indexed
                     self.sale_schedule[sale_year] += val
 
@@ -225,15 +198,10 @@ class CashflowEngine:
         years = range(0, operation.holding_period + 1)
         data = []
         
-        # Exit Valuation Logic (Strict Excel B16 Replication)
-        # Excel B16: NOI(n+1) = NOI(n) * (1 + RentGrowth)
-        # First, calculate NOI at year N (Holding Period)
         rent_n = scheduler.rent_schedule[operation.holding_period]
         opex_fixed_n = general.gfa * operation.opex_per_m2 * ((1 + operation.inflation) ** (operation.holding_period - 1))
         opex_var_n = rent_n * operation.pm_fee_pct
         noi_n = rent_n - (opex_fixed_n + opex_var_n)
-        
-        # Apply Growth to get NOI N+1
         noi_n_plus_1 = noi_n * (1 + operation.rent_growth)
         
         gross_exit_val = noi_n_plus_1 / operation.exit_yield
@@ -259,7 +227,6 @@ class CashflowEngine:
                 row['Sales Income'] = sales
                 row['OPEX'] = -total_opex
                 row['NOI'] = noi
-                
                 capex_amt = construction.get_yearly_capex().get(y, 0)
                 row['CAPEX'] = -capex_amt
                 
