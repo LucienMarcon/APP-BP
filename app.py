@@ -5,7 +5,7 @@ from financial_model import General, Construction, Financing, OperationExit, Amo
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(layout="wide", page_title="BP Immo - Zero Deviation")
 st.title("🏢 Real Estate Financial Model (Modular Architecture)")
-st.info("Strict replication of 'logique_bp_immo.txt' with Parking & Units Integration.")
+st.info("Strict replication of 'logique_bp_immo.txt' with Granular Units (Occupancy, Growth overrides).")
 
 # 1. GENERAL CONFIGURATION
 st.markdown("### 🌍 Configuration du Projet")
@@ -100,32 +100,31 @@ with st.expander("🛠️ Paramètres Avancés (Dette, Exit...)", expanded=False
         i_grace = st.number_input("Franchise (Années)", 2)
         i_upfront = st.number_input("Frais Dossier (€)", 150000)
     with col_p3:
-        i_rent_growth = st.number_input("Croissance Loyer (%)", 2.5)
+        i_rent_growth = st.number_input("Croissance Loyer (Défaut %)", 2.5)
         i_exit_yield = st.number_input("Taux de Sortie (%)", 8.25)
 
 # 4. UNIT MIX (PRE-LOADED DATA)
 st.subheader("Unit Mix & Parking Definition")
 
-# Données pré-remplies selon votre prompt (37 lignes)
 units_data = []
-# Offices
+# Offices (Occupancy 90, Growth 5, Asset Growth 4.5)
 units_data.extend([
-    {"Code": "OF-L", "Type": "Bureaux", "Surface (m²)": 3000, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio": 2.5},
-    {"Code": "OF-M", "Type": "Bureaux", "Surface (m²)": 3000, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio": 2.5},
-    {"Code": "OF-S", "Type": "Bureaux", "Surface (m²)": 2640, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio": 2.5},
+    {"Code": "OF-L", "Type": "Bureaux", "Surface (m²)": 3000, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio": 2.5, "Occupancy %": 90, "Rent Growth %": 5, "Appreciation %": 4.5},
+    {"Code": "OF-M", "Type": "Bureaux", "Surface (m²)": 3000, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio": 2.5, "Occupancy %": 90, "Rent Growth %": 5, "Appreciation %": 4.5},
+    {"Code": "OF-S", "Type": "Bureaux", "Surface (m²)": 2640, "Rent (€/m²/mo)": 20, "Price (€/m²)": 0, "Start Year": 3, "Sale Year": "Exit", "Mode": "Rent", "Parking per unit": 0, "Parking ratio": 2.5, "Occupancy %": 90, "Rent Growth %": 5, "Appreciation %": 4.5},
 ])
-# T2 VP (4 rows)
-for _ in range(4): units_data.append({"Code": "T2-VP", "Type": "T2", "Surface (m²)": 70, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio": 0})
+# T2 VP (4 rows) (Occupancy 95, Growth 4, Asset Growth 4)
+for _ in range(4): units_data.append({"Code": "T2-VP", "Type": "T2", "Surface (m²)": 70, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
 # T2 VEFA (6 rows)
-for _ in range(6): units_data.append({"Code": "T2-VEFA", "Type": "T2", "Surface (m²)": 70, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio": 0})
+for _ in range(6): units_data.append({"Code": "T2-VEFA", "Type": "T2", "Surface (m²)": 70, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 1.5, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
 # T3 VP (4 rows)
-for _ in range(4): units_data.append({"Code": "T3-VP", "Type": "T3", "Surface (m²)": 110, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0})
+for _ in range(4): units_data.append({"Code": "T3-VP", "Type": "T3", "Surface (m²)": 110, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
 # T3 VEFA (8 rows)
-for _ in range(8): units_data.append({"Code": "T3-VEFA", "Type": "T3", "Surface (m²)": 110, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0})
+for _ in range(8): units_data.append({"Code": "T3-VEFA", "Type": "T3", "Surface (m²)": 110, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
 # T4 VP (6 rows)
-for _ in range(6): units_data.append({"Code": "T4-VP", "Type": "T4", "Surface (m²)": 150, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0})
+for _ in range(6): units_data.append({"Code": "T4-VP", "Type": "T4", "Surface (m²)": 150, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": "Exit", "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
 # T4 VEFA (6 rows)
-for _ in range(6): units_data.append({"Code": "T4-VEFA", "Type": "T4", "Surface (m²)": 150, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0})
+for _ in range(6): units_data.append({"Code": "T4-VEFA", "Type": "T4", "Surface (m²)": 150, "Rent (€/m²/mo)": 16, "Price (€/m²)": 2300, "Start Year": 3, "Sale Year": 1, "Mode": "Mixed", "Parking per unit": 2, "Parking ratio": 0, "Occupancy %": 95, "Rent Growth %": 4, "Appreciation %": 4})
 
 df_default_units = pd.DataFrame(units_data)
 
@@ -134,7 +133,10 @@ col_conf = {
     "Rent (€/m²/mo)": st.column_config.NumberColumn(format="%.2f €"),
     "Mode": st.column_config.SelectboxColumn(options=["Rent", "Sale", "Mixed"]),
     "Parking per unit": st.column_config.NumberColumn(label="Parking (Fixed)", help="Places fixes par unité"),
-    "Parking ratio": st.column_config.NumberColumn(label="Parking Ratio", help="Places pour 100m²")
+    "Parking ratio": st.column_config.NumberColumn(label="Parking Ratio", help="Places pour 100m²"),
+    "Occupancy %": st.column_config.NumberColumn(label="Occ %", help="Taux d'occupation", format="%d %%"),
+    "Rent Growth %": st.column_config.NumberColumn(label="Rent Growth", help="Croissance Loyer Annuelle", format="%.1f %%"),
+    "Appreciation %": st.column_config.NumberColumn(label="Asset Growth", help="Valorisation Annuelle", format="%.1f %%"),
 }
 
 df_units = st.data_editor(df_default_units, column_config=col_conf, num_rows="dynamic", use_container_width=True)
