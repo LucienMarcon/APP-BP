@@ -1,108 +1,84 @@
-/* --- TYPOGRAPHIE & RESET --- */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap');
 
+/* --- RESET & BASE --- */
 .stApp {
-    background-color: #F8FAFC;
+    background-color: #F8FAFC; /* Off-white reposant */
     font-family: 'Inter', sans-serif;
+}
+
+header[data-testid="stHeader"] {
+    display: none; /* Cacher le header natif */
 }
 
 /* --- UI COMPONENTS --- */
 
-/* Cacher le header par défaut */
-header[data-testid="stHeader"] {
-    display: none;
-}
-
-/* Métriques (KPI Cards) */
-div[data-testid="metric-container"] {
-    background-color: #FFFFFF;
+/* Cards & Containers */
+[data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
+    background-color: white;
     border: 1px solid #E2E8F0;
     border-radius: 12px;
-    padding: 16px;
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-    transition: all 0.2s ease-in-out;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
+/* Metrics (KPIs) */
+div[data-testid="metric-container"] {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 15px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+    transition: transform 0.2s;
+}
 div[data-testid="metric-container"]:hover {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    border-color: #CBD5E1;
+    transform: translateY(-2px);
+    border-color: #3B82F6;
 }
-
 div[data-testid="metric-container"] label {
-    color: #64748B;
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    font-weight: 600;
+    color: #64748B;
 }
-
 div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
     font-family: 'JetBrains Mono', monospace;
+    font-size: 1.6rem;
     color: #0F172A;
-    font-size: 1.5rem;
-    font-weight: 700;
 }
 
-/* Onglets (Tabs) - Style iOS Segmented Control */
+/* Tabs (Navigation) */
 .stTabs [data-baseweb="tab-list"] {
-    background-color: #F1F5F9;
-    padding: 4px;
-    border-radius: 10px;
-    gap: 0;
-    margin-bottom: 20px;
-}
-
-.stTabs [data-baseweb="tab"] {
-    height: 36px;
-    border-radius: 8px;
-    border: none;
     background-color: transparent;
-    color: #64748B;
-    font-weight: 500;
-    font-size: 0.9rem;
+    gap: 8px;
+    margin-bottom: 1rem;
 }
-
-.stTabs [aria-selected="true"] {
-    background-color: #FFFFFF;
-    color: #0F172A;
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-}
-
-/* Inputs Modernes */
-.stTextInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
+.stTabs [data-baseweb="tab"] {
     background-color: #FFFFFF;
     border: 1px solid #E2E8F0;
     border-radius: 8px;
-    color: #0F172A;
-    font-family: 'Inter', sans-serif;
+    padding: 8px 16px;
+    font-weight: 500;
+    color: #64748B;
+    height: auto;
+}
+.stTabs [aria-selected="true"] {
+    background-color: #EFF6FF;
+    border-color: #3B82F6;
+    color: #2563EB;
 }
 
+/* Inputs */
+.stTextInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
+    border-radius: 8px;
+    border: 1px solid #E2E8F0;
+}
 .stNumberInput input {
     font-family: 'JetBrains Mono', monospace;
 }
 
-/* Bouton Principal (Call to Action) */
+/* Boutons */
 .stButton button {
-    width: 100%;
-    background-color: #0F172A;
-    color: white;
     border-radius: 8px;
-    border: none;
-    padding: 0.6rem 1rem;
     font-weight: 600;
-    transition: background 0.2s;
-}
-
-.stButton button:hover {
-    background-color: #1E293B;
-    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
-}
-
-/* Dataframes & Charts Containers */
-[data-testid="stDataFrame"], [data-testid="stPlotlyChart"] {
-    background: white;
-    border: 1px solid #E2E8F0;
-    border-radius: 12px;
-    padding: 10px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    transition: all 0.2s;
 }
